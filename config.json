@@ -1,0 +1,106 @@
+{
+  "base_data_path": "D:\\code\\XY\\3_13\\資料檔\\浮標資料",
+  "CHINESE_FONT_PATH": "fonts/NotoSansTC-VariableFont_wght.ttf",
+  "risk_thresholds": {
+    "Wave_Height_Significant": {
+      "warning": 2.5,
+      "danger": 4.0
+    },
+    "Wind_Speed": {
+      "warning": 10.0,
+      "danger": 17.0
+    }
+  },
+  "STATION_COORDS": {
+    "小琉球資料浮標": {"latitude": 22.3131, "longitude": 120.3639},
+    "臺東資料浮標": {"latitude": 22.7242, "longitude": 121.1442},
+    "東吉嶼資料浮標": {"latitude": 23.23666, "longitude": 119.64861},
+    "南灣資料浮標": {"latitude": 21.94527, "longitude": 120.76},
+    "潮境資料浮標": {"latitude": 25.14416, "longitude": 121.80833},
+    "龍洞資料浮標": {"latitude": 25.0969, "longitude": 121.9222},
+    "彌陀資料浮標": {"latitude": 22.7653, "longitude": 120.165},
+    "鵝鑾鼻資料浮標": {"latitude": 21.900278, "longitude": 120.8225},
+    "蘇澳資料浮標": {"latitude": 24.6256, "longitude": 121.8761}
+  },
+  "PARAMETER_INFO": {
+    "Wave_Height_Significant": {
+      "display_zh": "示性波高",
+      "unit": "m",
+      "type": "linear",
+      "column_name_in_data": "wave_height_significant"
+    },
+    "Wave_Mean_Period": {
+      "display_zh": "平均波週期",
+      "unit": "sec",
+      "type": "linear",
+      "column_name_in_data": "wave_mean_period"
+    },
+    "Wave_Peak_Period": {
+      "display_zh": "波浪尖峰週期",
+      "unit": "sec",
+      "type": "linear",
+      "column_name_in_data": "wave_peak_period"
+    },
+    "Wave_Main_Direction": {
+      "display_zh": "波向",
+      "unit": "°",
+      "type": "circular",
+      "column_name_in_data": "wave_main_direction"
+    },
+    "Wind_Speed": {
+      "display_zh": "風速",
+      "unit": "m/s",
+      "type": "linear",
+      "column_name_in_data": "wind_speed"
+    },
+    "Wind_Gust_Speed": {
+      "display_zh": "陣風風速",
+      "unit": "m/s",
+      "type": "linear",
+      "column_name_in_data": "wind_gust_speed"
+    },
+    "Wind_Direction": {
+      "display_zh": "風向",
+      "unit": "°",
+      "type": "circular",
+      "column_name_in_data": "wind_direction"
+    },
+    "Air_Pressure": {
+      "display_zh": "氣壓",
+      "unit": "hPa",
+      "type": "linear",
+      "column_name_in_data": "air_pressure"
+    },
+    "Air_Temperature": {
+      "display_zh": "氣溫",
+      "unit": "°C",
+      "type": "linear",
+      "column_name_in_data": "air_temperature"
+    },
+    "Sea_Temperature": {
+      "display_zh": "海面溫度",
+      "unit": "°C",
+      "type": "linear",
+      "column_name_in_data": "sea_temperature"
+    },
+    "Current_Speed": {
+      "display_zh": "流速",
+      "unit": "m/s",
+      "type": "linear",
+      "column_name_in_data": "current_speed"
+    },
+    "Current_Direction": {
+      "display_zh": "流向",
+      "unit": "°",
+      "type": "circular",
+      "column_name_in_data": "current_direction"
+    },
+    "Tide_Height": {
+      "display_zh": "潮高",
+      "unit": "m",
+      "type": "linear",
+      "column_name_in_data": "tide_height"
+    }
+  },
+  "DATA_SUBFOLDERS_PRIORITY": ["qc", "QC", "real time", "real_time", "RealTime", "Real Time", "realtime"]
+}

@@ -1,0 +1,363 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import os
+import json
+import re
+import chardet
+
+# Optional: For Matplotlib related functions, if you still use them in other parts of your app
+import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
+
+# --- 全局配置變數 (在模組載入時初始化) ---
+PARAMETER_INFO = {}
+DATA_SUBFOLDERS_PRIORITY = []
+BASE_DATA_PATH_FROM_CONFIG = "資料檔/浮標資料/"
+CHINESE_FONT_NAME = None # 用於 Streamlit Plotly 圖表的中文字體名稱
+CHINESE_FONT_PATH_FULL = None # 用於 Matplotlib 的中文字體完整路徑
+STATION_COORDS = {} # 新增：將 STATION_COORDS 設為全局變數
+
+# --- 載入配置檔 ---
+def load_app_config_and_font():
+    """載入應用程式的配置檔，並設定中文字體資訊。
+    此函數會更新模組層級的全局變數。
+    """
+    global PARAMETER_INFO, DATA_SUBFOLDERS_PRIORITY, BASE_DATA_PATH_FROM_CONFIG
+    global CHINESE_FONT_NAME, CHINESE_FONT_PATH_FULL, STATION_COORDS 
+
+    CONFIG_FILE_NAME = 'config.json'
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.normpath(os.path.join(current_dir, '..', CONFIG_FILE_NAME))
+    
+    try:
+        if not os.path.exists(config_path):
+            print(f"錯誤: 配置檔 '{config_path}' 不存在。請確保它與 Streamlit 應用程式的入口檔案在同一個資料夾。")
+            raise FileNotFoundError(f"配置檔 '{config_path}' 不存在。")
+        
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        if "STATION_COORDS" in config:
+            new_coords = {}
+            for station, coords in config["STATION_COORDS"].items():
+                new_coords[station] = {
+                    "latitude": coords.get("lat", coords.get("latitude")),
+                    "longitude": coords.get("lon", coords.get("longitude"))
+                }
+            STATION_COORDS = new_coords
+        
+        PARAMETER_INFO = config.get("PARAMETER_INFO", {})
+        DATA_SUBFOLDERS_PRIORITY = config.get("DATA_SUBFOLDERS_PRIORITY", ["qc", "QC", "real time", "real_time", "RealTime", "Real Time", "realtime"])
+        BASE_DATA_PATH_FROM_CONFIG = config.get("base_data_path", "資料檔/浮標資料/")
+
+        font_path_relative = config.get("CHINESE_FONT_PATH")
+        if font_path_relative:
+            full_font_path = os.path.normpath(os.path.join(current_dir, '..', font_path_relative))
+            if os.path.exists(full_font_path):
+                CHINESE_FONT_NAME = os.path.splitext(os.path.basename(full_font_path))[0]
+                CHINESE_FONT_PATH_FULL = full_font_path
+                # print(f"中文字型 '{CHINESE_FONT_NAME}' 成功載入。")
+            else:
+                print(f"警告: 配置檔中指定的中文字型檔 '{full_font_path}' 不存在。將使用預設字型。")
+        else:
+            print("警告: 配置檔中未指定中文字型路徑。將使用預設字型。")
+
+        return config
+
+    except Exception as e:
+        print(f"載入配置檔時發生錯誤: {e}")
+        raise
+
+try:
+    _app_config = load_app_config_and_font()
+except Exception as e:
+    print(f"應用程式啟動時配置初始化失敗: {e}. 請檢查您的 'config.json' 檔案。")
+    PARAMETER_INFO, DATA_SUBFOLDERS_PRIORITY, STATION_COORDS = {}, [], {}
+    BASE_DATA_PATH_FROM_CONFIG = "資料檔/浮標資料/"
+    CHINESE_FONT_NAME, CHINESE_FONT_PATH_FULL = None, None
+
+# --- 輔助函數 ---
+
+@st.cache_resource
+def set_chinese_font_for_matplotlib(font_path_full, font_name):
+    """設定 Matplotlib 的中文字型。"""
+    try:
+        if os.path.exists(font_path_full):
+            my_font_prop = fm.FontProperties(fname=font_path_full)
+            plt.rcParams['font.sans-serif'] = [my_font_prop.get_name()]
+            plt.rcParams['axes.unicode_minus'] = False
+        else:
+            print(f"警告：中文字型檔 '{font_path_full}' 不存在。")
+    except Exception as e:
+        print(f"設定 Matplotlib 字型時發生錯誤: {e}")
+        plt.rcParams['font.sans-serif'] = ['sans-serif']
+        plt.rcParams['axes.unicode_minus'] = False
+
+def convert_df_to_csv(df):
+    """將 DataFrame 轉換為可供下載的 CSV 格式。"""
+    if df is None or df.empty:
+        return pd.DataFrame().to_csv(index=False).encode('utf-8')
+    return df.to_csv(index=False).encode('utf-8')
+
+@st.cache_data(ttl=3600)
+def load_single_file(file_path):
+    """載入並清理單一月份的 CSV 檔案。"""
+    df = None
+    try:
+        # 自動偵測編碼
+        with open(file_path, 'rb') as f:
+            raw_data = f.read(100000)
+            result = chardet.detect(raw_data)
+            detected_encoding = result['encoding']
+
+        encodings_to_try = list(dict.fromkeys([detected_encoding, 'utf-8', 'big5', 'cp950', 'gbk', 'latin-1']))
+
+        for encoding in encodings_to_try:
+            if encoding:
+                try:
+                    df = pd.read_csv(file_path, delimiter=',', on_bad_lines='warn', header=None, low_memory=False, encoding=encoding)
+                    break
+                except (UnicodeDecodeError, pd.errors.ParserError):
+                    continue
+
+        if df is None or len(df) < 3:
+            return None
+
+        # 處理標頭並清理欄位名稱
+        english_headers = df.iloc[1].astype(str).str.strip()
+        df.columns = english_headers
+        df = df[3:].reset_index(drop=True)
+        df.columns = df.columns.str.strip()
+
+        # --- 自動尋找並重新命名時間欄位 ---
+        time_col_candidates = ['time', 'Time', '觀測時間', 'Date', 'datetime', 'Datetime', '時間']
+        actual_time_col = None
+        for col in time_col_candidates:
+            if col in df.columns:
+                actual_time_col = col
+                break
+        
+        if actual_time_col and actual_time_col != 'time':
+            df.rename(columns={actual_time_col: 'time'}, inplace=True)
+        
+        # 轉換數值型別
+        cols_to_convert = [col for col, info in PARAMETER_INFO.items() if info.get('type') in ['linear', 'circular']]
+        for col in cols_to_convert:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        # 轉換時間型別
+        if 'time' in df.columns:
+            df['time'] = pd.to_datetime(df['time'], errors='coerce')
+            df.dropna(subset=['time'], inplace=True)
+            if df['time'].empty:
+                return None
+        
+        return df
+    except Exception:
+        return None
+
+@st.cache_data(ttl=3600)
+def load_year_data(base_data_path, station, year):
+    """載入並合併指定測站和年份的所有月份資料。"""
+    monthly_dfs = []
+    location_path = os.path.join(base_data_path, station)
+    data_source_path = None
+    
+    # 尋找數據來源資料夾
+    search_paths = [os.path.join(location_path, folder) for folder in DATA_SUBFOLDERS_PRIORITY]
+    search_paths.append(location_path)
+    if os.path.exists(location_path):
+        search_paths.extend([os.path.join(location_path, d) for d in os.listdir(location_path) if os.path.isdir(os.path.join(location_path, d))])
+    
+    for path in dict.fromkeys(search_paths): # 使用 dict.fromkeys 去除重複路徑
+        if os.path.isdir(path) and any(re.match(fr'{year}\d{{2}}\.csv', f, re.IGNORECASE) for f in os.listdir(path)):
+            data_source_path = path
+            break
+            
+    if data_source_path is None:
+        return None
+
+    # 載入該年度所有月份的檔案
+    for month in range(1, 13):
+        file_path = os.path.join(data_source_path, f"{year}{month:02d}.csv")
+        if os.path.exists(file_path):
+            df_month = load_single_file(file_path)
+            if df_month is not None and not df_month.empty:
+                monthly_dfs.append(df_month)
+
+    if not monthly_dfs:
+        return None
+
+    combined_df = pd.concat(monthly_dfs, ignore_index=True)
+    
+    if 'time' in combined_df.columns:
+        if combined_df['time'].isnull().all():
+            return None # 如果所有時間值都無效，返回 None
+        
+        combined_df = combined_df.sort_values(by='time').drop_duplicates(subset=['time'], keep='first')
+    else:
+        return None
+
+    return combined_df.reset_index(drop=True)
+
+def load_data_for_prediction_page(station_name, param_col, start_date, end_date):
+    df_list = []
+    base_data_path_full = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', BASE_DATA_PATH_FROM_CONFIG))
+    years_to_load = range(start_date.year, end_date.year + 1)
+    
+    for year in years_to_load:
+        df_year = load_year_data(base_data_path_full, station_name, year)
+        if df_year is not None and not df_year.empty and 'time' in df_year.columns:
+            df_year = df_year.set_index('time')
+            df_list.append(df_year)
+    
+    if not df_list: return pd.DataFrame()
+
+    combined_df = pd.concat(df_list)
+    combined_df = combined_df[~combined_df.index.duplicated(keep='first')].sort_index()
+
+    combined_df = combined_df[
+        (combined_df.index.to_series() >= pd.to_datetime(start_date)) &
+        (combined_df.index.to_series() <= pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1))
+    ].copy()
+
+    if combined_df.empty or param_col not in combined_df.columns: return pd.DataFrame()
+    
+    df_filtered = combined_df[[param_col]].copy()
+    df_filtered.columns = ['y']
+    df_filtered.reset_index(inplace=True)
+    df_filtered.rename(columns={'time': 'ds'}, inplace=True)
+
+    return df_filtered
+
+def create_sequences(data, look_back):
+    X, y = [], []
+    if data.ndim == 1: data = data.reshape(-1, 1)
+    for i in range(len(data) - look_back):
+        X.append(data[i:(i + look_back), :])
+        y.append(data[i + look_back, 0])
+    return np.array(X), np.array(y)
+
+def analyze_data_quality(df, relevant_params=None):
+    quality_metrics = {}
+    if df.empty: return quality_metrics
+
+    if relevant_params is None:
+        relevant_params = [col for col, info in PARAMETER_INFO.items() if info.get('type') == 'linear']
+    
+    actual_params_to_check = [param for param in relevant_params if param in df.columns]
+
+    for param_col in actual_params_to_check:
+        total_records, missing_count = len(df), df[param_col].isnull().sum()
+        valid_count = total_records - missing_count
+        missing_percentage = (missing_count / total_records) * 100 if total_records > 0 else 0
+
+        if pd.api.types.is_numeric_dtype(df[param_col]):
+            series_clean = df[param_col].dropna()
+            Q1, Q3 = series_clean.quantile(0.25), series_clean.quantile(0.75)
+            IQR = Q3 - Q1
+            outlier_iqr_count = 0
+            if IQR > 1e-9:
+                lower, upper = Q1 - 1.5 * IQR, Q3 + 1.5 * IQR
+                outlier_iqr_count = series_clean[(series_clean < lower) | (series_clean > upper)].count()
+            
+            quality_metrics[param_col] = {
+                'total_records': total_records, 'valid_count': valid_count, 'missing_count': missing_count,
+                'missing_percentage': missing_percentage, 'zero_count': (df[param_col] == 0).sum(),
+                'negative_count': (df[param_col] < 0).sum(), 'outlier_iqr_count': outlier_iqr_count,
+                'is_numeric': True
+            }
+        else:
+            quality_metrics[param_col] = {'is_numeric': False}
+    return quality_metrics
+
+def prepare_windrose_data(df):
+    if df is None or df.empty or 'Wind_Speed' not in df.columns or 'Wind_Direction' not in df.columns: return None
+    df_wind = df[['Wind_Speed', 'Wind_Direction']].copy()
+    df_wind['Wind_Speed'] = pd.to_numeric(df_wind['Wind_Speed'], errors='coerce')
+    df_wind['Wind_Direction'] = pd.to_numeric(df_wind['Wind_Direction'], errors='coerce')
+    df_wind.dropna(inplace=True)
+    if df_wind.empty: return None
+
+    dir_bins = np.arange(-11.25, 370.0, 22.5)
+    dir_labels = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
+    speed_bins = [-1, 2, 4, 6, 8, 10, 12, np.inf]
+    speed_labels = ['0-2 m/s', '2-4 m/s', '4-6 m/s', '6-8 m/s', '8-10 m/s', '10-12 m/s', '>12 m/s']
+
+    df_wind['direction_bin'] = pd.cut((df_wind['Wind_Direction'] + 11.25) % 360, bins=dir_bins, labels=dir_labels, right=False)
+    df_wind['speed_bin'] = pd.cut(df_wind['Wind_Speed'], bins=speed_bins, labels=speed_labels, right=True)
+
+    windrose_df = df_wind.groupby(['direction_bin', 'speed_bin'], observed=False).size().reset_index(name='frequency')
+    windrose_df['percentage'] = (windrose_df['frequency'] / len(df_wind)) * 100
+    return windrose_df
+
+def get_available_years(base_data_path_from_config, locations):
+    all_years = set()
+    base_data_path_full = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', base_data_path_from_config))
+    if not os.path.exists(base_data_path_full):
+        current_year = pd.Timestamp.now().year
+        return list(range(current_year - 5, current_year + 1))
+
+    for location in locations:
+        location_path = os.path.join(base_data_path_full, location)
+        if not os.path.isdir(location_path): continue
+        
+        for dirpath, _, filenames in os.walk(location_path):
+            for filename in filenames:
+                match = re.match(r'(\d{4})\d{2}\.csv', filename, re.IGNORECASE)
+                if match:
+                    all_years.add(int(match.group(1)))
+                    
+    if not all_years:
+        current_year = pd.Timestamp.now().year
+        return list(range(current_year - 5, current_year + 1))
+    return sorted(list(all_years))
+
+def batch_process_all_data(base_data_path_from_config, locations, years_to_analyze, wave_thresh, wind_thresh):
+    all_results = []
+    missing_data_sources = []
+    base_data_path_full = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', base_data_path_from_config))
+
+    for location in locations:
+        has_data_for_location = False
+        for year in years_to_analyze:
+            df_year = load_year_data(base_data_path_full, location, year)
+            if df_year is not None and not df_year.empty:
+                has_data_for_location = True
+                
+                # --- 第 1 個修改：將 'month' 欄位直接命名為 '月份' ---
+                df_year['月份'] = df_year['time'].dt.month
+                
+                # --- 第 2 個修改：使用 '月份' 進行分組 ---
+                monthly_results = df_year.groupby('月份').apply(
+                    lambda df_month: analyze_navigability(df_month, wave_thresh, wind_thresh)
+                ).reset_index(name='可航行時間比例(%)')
+                
+                monthly_results['地點'] = location
+                monthly_results['年份'] = year
+                
+                # --- 現在這行可以正常運作，因為 '月份' 欄位存在 ---
+                monthly_results['年月'] = monthly_results.apply(lambda row: f"{row['年份']}-{int(row['月份']):02d}", axis=1)
+                all_results.append(monthly_results)
+
+        if not has_data_for_location:
+            missing_data_sources.append(location)
+            
+    if not all_results:
+        return pd.DataFrame(), missing_data_sources
+        
+    return pd.concat(all_results, ignore_index=True), missing_data_sources
+
+def analyze_navigability(df, wave_threshold, wind_threshold):
+    if df is None or df.empty or 'Wave_Height_Significant' not in df.columns or 'Wind_Speed' not in df.columns: return np.nan
+    
+    df_navi = df[['Wave_Height_Significant', 'Wind_Speed']].copy()
+    df_navi['Wave_Height_Significant'] = pd.to_numeric(df_navi['Wave_Height_Significant'], errors='coerce')
+    df_navi['Wind_Speed'] = pd.to_numeric(df_navi['Wind_Speed'], errors='coerce')
+    df_navi.dropna(inplace=True)
+    if df_navi.empty: return np.nan
+    
+    navigable_conditions = df_navi[(df_navi['Wave_Height_Significant'] < wave_threshold) & (df_navi['Wind_Speed'] < wind_threshold)]
+    return (len(navigable_conditions) / len(df_navi)) * 100

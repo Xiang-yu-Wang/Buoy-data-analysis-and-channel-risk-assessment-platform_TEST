@@ -1,0 +1,15 @@
+streamlit
+pandas
+numpy
+plotly
+prophet
+scikit-learn
+chardet
+matplotlib
+windrose
+cmdstanpy
+ruptures
+pmdarima        
+tensorflow
+statsmodels
+joblib
