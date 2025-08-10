@@ -13,3 +13,5 @@ pmdarima
 tensorflow
 statsmodels
 joblib
+folium
+streamlit_folium
