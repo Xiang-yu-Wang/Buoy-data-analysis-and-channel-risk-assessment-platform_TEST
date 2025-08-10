@@ -1,5 +1,5 @@
 {
-  "base_data_path": "D:\\code\\XY\\3_13\\資料檔\\浮標資料",
+  "base_data_path": "資料檔/浮標資料",
   "CHINESE_FONT_PATH": "fonts/NotoSansTC-VariableFont_wght.ttf",
   "risk_thresholds": {
     "Wave_Height_Significant": {

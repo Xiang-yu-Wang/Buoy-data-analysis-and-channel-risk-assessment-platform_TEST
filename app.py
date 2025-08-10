@@ -57,7 +57,7 @@ def initialize_session_state():
 
     if 'locations' not in st.session_state:
         # 建構完整的資料路徑 (考慮到 config.json 中的可能是相對路徑)
-        full_base_data_path_abs = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', st.session_state.base_data_path))
+        full_base_data_path_abs = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), st.session_state.base_data_path))
         try:
             if not os.path.exists(full_base_data_path_abs):
                 st.session_state.locations = []
