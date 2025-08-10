@@ -11,7 +11,9 @@ import tensorflow as tf
 from keras.models import Model
 from keras.layers import Input, Dense, Dropout, LayerNormalization, MultiHeadAttention
 from keras.callbacks import EarlyStopping
-import glob # 確保 glob 模組已導入
+import glob
+
+from utils.helpers import initialize_session_state 
 
 # 設置 TensorFlow 日誌級別，抑制 INFO 訊息
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
@@ -22,6 +24,7 @@ st.set_page_config(
     page_icon="🤖",
     layout="wide"
 )
+initialize_session_state()
 
 st.title("🤖 海洋數據 Transformer 模型預測")
 st.markdown("使用 Transformer 類神經網絡預測海洋數據的未來趨勢。")

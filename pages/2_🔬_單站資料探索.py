@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from utils.helpers import load_year_data, convert_df_to_csv, PARAMETER_INFO, analyze_data_quality
+from utils.helpers import initialize_session_state, load_year_data, convert_df_to_csv, PARAMETER_INFO, analyze_data_quality
 import numpy as np
 import io
 import datetime
@@ -18,6 +18,7 @@ except ImportError:
     st.warning("警告：ruptures 庫未安裝。趨勢變點偵測功能將無法使用。請運行 `pip install ruptures`。")
 
 
+initialize_session_state()
 st.title("🔬 單站資料探索")
 st.write("檢視特定測站在特定年月份的詳細時序資料。")
 st.markdown("---")
@@ -38,7 +39,10 @@ else:
     with st.form("main_dashboard_form_pages2"):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            station = st.selectbox("選擇測站", locations, key='pages_2_ss_station_main')
+            index = 0
+            if st.query_params.get('station'):
+                index = locations.index(st.query_params['station']) if st.query_params['station'] in locations else 0
+            station = st.selectbox("選擇測站", locations, key='pages_2_ss_station_main', index=index)
         with col2:
             default_year_index = len(available_years) - 1 if available_years else 0
             year = st.selectbox("選擇年份", available_years, index=default_year_index, key='pages_2_ss_year')
@@ -53,6 +57,7 @@ else:
                 key='pages_2_ss_chart_type'
             )
         submitted = st.form_submit_button("🚀 產生統計報告")
+
 
 
     # --- 數據預處理控制項 ---

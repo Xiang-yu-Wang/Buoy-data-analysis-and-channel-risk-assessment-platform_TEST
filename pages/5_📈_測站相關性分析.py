@@ -8,6 +8,8 @@ import zipfile
 from scipy import signal
 from scipy.stats import mstats, linregress
 
+from utils.helpers import initialize_session_state
+
 # 為了讓此腳本能獨立運行，我們模擬輔助函式的功能
 # 在您的專案中，請確保 from utils.helpers import ... 是有效的
 def load_year_data(base_path, station, year):
@@ -44,6 +46,7 @@ def convert_df_to_csv(df):
 st.set_page_config(layout="wide")
 st.title('📈 測站資料分析平台')
 st.write("提供測站相關性分析與數據品質檢視功能。")
+initialize_session_state()
 
 # --- 常數與字典定義 ---
 PARAM_DISPLAY_NAMES = {

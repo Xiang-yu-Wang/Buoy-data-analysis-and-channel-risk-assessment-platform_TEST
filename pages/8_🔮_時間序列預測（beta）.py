@@ -57,6 +57,7 @@ st.set_page_config(
     page_icon="🔮",
     layout="wide"
 )
+initialize_session_state()
 
 st.title("🔮 海洋數據時間序列預測 (Beta)")
 st.markdown("使用 Prophet、SARIMA 或 ETS 模型預測海洋數據的未來趨勢。")

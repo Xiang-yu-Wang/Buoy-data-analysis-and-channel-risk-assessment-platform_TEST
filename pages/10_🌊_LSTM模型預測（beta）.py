@@ -15,6 +15,8 @@ from scipy.stats import pearsonr
 import joblib
 import hashlib
 
+from utils.helpers import initialize_session_state
+
 # --- 嘗試導入 TensorFlow / Keras ---
 tensorflow_available = False
 try:
@@ -224,6 +226,7 @@ st.set_page_config(
     page_icon="🌊",
     layout="wide"
 )
+initialize_session_state()
 
 st.title("🌊 海洋數據 LSTM 模型預測")
 st.markdown("使用長短期記憶 (LSTM) 類神經網絡預測海洋數據的未來趨勢。")

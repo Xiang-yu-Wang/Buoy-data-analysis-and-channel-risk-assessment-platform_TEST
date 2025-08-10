@@ -2,11 +2,12 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils.helpers import batch_process_all_data, convert_df_to_csv
+from utils.helpers import batch_process_all_data, convert_df_to_csv, initialize_session_state
 
 import io
 import zipfile
 
+initialize_session_state()
 st.title('🗺️ 航行適宜性熱力圖')
 st.write('選擇年份範圍和安全閾值，分析所有測站的航行適宜性。')
 st.sidebar.subheader("熱力圖設定")

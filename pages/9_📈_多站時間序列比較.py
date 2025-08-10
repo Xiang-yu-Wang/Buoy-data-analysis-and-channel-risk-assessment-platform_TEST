@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils.helpers import load_year_data, PARAMETER_INFO
+from utils.helpers import load_year_data, PARAMETER_INFO, initialize_session_state
 import io
 import zipfile
 
@@ -14,6 +14,7 @@ if 'analysis_run' not in st.session_state:
     st.session_state.results = {}
 
 # --- 頁面標題 ---
+initialize_session_state()
 st.title("📈 多站時間序列比較")
 st.write("同時檢視多個測站在特定年份，同一參數的時間序列數據，以便進行趨勢比較。")
 st.markdown("---")

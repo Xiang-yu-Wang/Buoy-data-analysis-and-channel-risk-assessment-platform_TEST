@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils.helpers import load_year_data, prepare_windrose_data, convert_df_to_csv, PARAMETER_INFO, load_single_file
+from utils.helpers import load_year_data, prepare_windrose_data, convert_df_to_csv, PARAMETER_INFO, load_single_file, initialize_session_state
 import io
 import zipfile
 import os
@@ -86,6 +86,7 @@ def get_available_months_for_year(base_path, station, year):
 st.markdown('<h1 style="color:white;">🌹 風玫瑰圖分析</h1>', unsafe_allow_html=True)
 st.write("選擇一個測站及一個完整的時間區間，視覺化該時段的風向和風速分佈。")
 st.markdown("---")
+initialize_session_state()
 
 # 初始化 session_state，用於儲存分析結果
 if 'analysis_results' not in st.session_state:

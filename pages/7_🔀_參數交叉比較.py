@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils.helpers import load_year_data, PARAMETER_INFO
+from utils.helpers import load_year_data, PARAMETER_INFO, initialize_session_state
 import io
 from zipfile import ZipFile
 from scipy.stats import linregress
@@ -9,6 +9,7 @@ import numpy as np
 from datetime import datetime
 
 st.title("🔀 參數交叉比較")
+initialize_session_state()
 st.write("在單一測站和特定時間範圍內，探索兩個不同物理參數之間的關聯性。")
 st.markdown("---")
 

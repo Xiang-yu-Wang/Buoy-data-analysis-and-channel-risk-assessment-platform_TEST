@@ -9,10 +9,12 @@ import numpy as np
 import os
 import folium
 from streamlit_folium import st_folium
-from utils.helpers import load_year_data, PARAMETER_INFO, load_single_file, convert_df_to_csv
+from utils.helpers import initialize_session_state, load_year_data, PARAMETER_INFO, convert_df_to_csv
 
 # --- 1. 頁面設定與標題 ---
 st.set_page_config(layout="wide")
+initialize_session_state()
+
 st.title("📍 測站地圖總覽")
 st.write("本地圖標示了所有已納入分析的浮標測站的地理位置，並可視覺化風場或波場動態。")
 st.markdown("---")
@@ -230,7 +232,7 @@ if analysis_mode == "靜態地圖":
         for name, row in map_locations.items():
             folium.Marker(
                 location=[row['lat'], row['lon']],
-                tooltip=name,
+                popup=folium.Popup(f"<a href='/單站資料探索?station={name}' target='_blank'>{name}</a>", max_width=300),
                 icon=folium.Icon(color='blue', icon='info-sign', prefix='glyphicon')
             ).add_to(m)
 

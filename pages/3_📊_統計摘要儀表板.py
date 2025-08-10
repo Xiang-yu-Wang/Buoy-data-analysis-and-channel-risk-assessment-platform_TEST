@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils.helpers import load_year_data, convert_df_to_csv, PARAMETER_INFO, analyze_data_quality
+from utils.helpers import initialize_session_state, load_year_data, convert_df_to_csv, PARAMETER_INFO, analyze_data_quality
 import io
 import zipfile
 
+initialize_session_state()
 st.title("📊 統計摘要儀表板")
 st.write("快速生成指定測站與時間範圍內的數據統計摘要報告。")
 st.markdown("---")

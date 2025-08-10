@@ -16,6 +16,7 @@ import plotly.express as px
 # 從 helpers 模組導入所有必要的通用函數和全局變數
 # 假設 helpers.py 中有這些函數
 from utils.helpers import (
+    initialize_session_state,
     load_app_config_and_font, 
     load_data_for_prediction_page, 
     analyze_data_quality, 
@@ -37,6 +38,7 @@ st.set_page_config(
     page_icon="📈",
     layout="wide"
 )
+initialize_session_state()
 
 st.title("📈 海洋數據 GRU 模型預測")
 st.markdown("使用門控循環單元 (GRU) 類神經網絡預測海洋數據的未來趨勢。")
