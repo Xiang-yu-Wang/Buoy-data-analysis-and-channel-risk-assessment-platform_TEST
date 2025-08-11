@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots 
 import os
 from glob import glob
@@ -16,6 +17,8 @@ import joblib
 import hashlib
 
 from utils.helpers import initialize_session_state
+
+pio.templates.default = "plotly_white"
 
 # --- 嘗試導入 TensorFlow / Keras ---
 tensorflow_available = False
@@ -464,7 +467,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("LSTM 模型參數")
 look_back = st.sidebar.slider("回溯時間步 (look_back):", 1, 48, 6, 1)
 lstm_units = st.sidebar.slider("LSTM 層單元數:", 10, 200, 50, 10)
-epochs = st.sidebar.number_input("訓練迭代次數 (Epochs):", 10, 500, 100, 10)
+epochs = st.sidebar.number_input("訓練迭代次數 (Epochs):", 10, 500, 50, 10)
 batch_size = st.sidebar.number_input("批次大小 (Batch Size):", 1, 128, 32, 8)
 dropout_rate = st.sidebar.slider("Dropout 比率:", 0.0, 0.5, 0.2, 0.05)
 validation_split = st.sidebar.slider("驗證集比例:", 0.0, 0.5, 0.1, 0.05)
@@ -799,11 +802,12 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
             )
 
         with col2:
-            html_data = fig.to_html(full_html=True, include_plotlyjs='cdn')
-            html_bytes = html_data.encode('utf-8')
+            fig_data = fig.to_html(full_html=True, include_plotlyjs='cdn')
+            fig_bytes = fig_data.encode('utf-8')
+
             st.download_button(
                 label="下載預測圖表 (HTML)",
-                data=html_bytes,
+                data=fig_bytes,
                 file_name=f"{selected_station}_{selected_param_col}_LSTM_forecast_chart.html",
                 mime="text/html",
                 use_container_width=True
