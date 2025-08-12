@@ -65,8 +65,9 @@ if run_button_clicked:
     else:
         with st.spinner("正在執行分析，請稍候..."):
             all_stations_data = []
-            for station_name in selected_stations:
-                df_station = load_year_data(base_data_path, station_name, selected_year)
+            for station_id in selected_stations:
+                station_name = get_station_name_from_id(station_id)
+                df_station = load_year_data(base_data_path, station_id, selected_year)
                 if df_station is not None and not df_station.empty and selected_param_col in df_station.columns:
                     df_filtered = df_station[['time', selected_param_col]].dropna()
                     if not df_filtered.empty:
