@@ -72,6 +72,7 @@ if not locations:
     st.stop()
 
 selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_12_gru_station', format_func=get_station_name_from_id)
+selected_station_name = get_station_name_from_id(selected_station)
 
 predictable_params_config_map = {
     col_name: info["display_zh"] for col_name, info in PARAMETER_INFO.items()
@@ -81,7 +82,6 @@ predictable_params_config_map = {
 # 動態獲取可用參數
 available_predictable_params_display_to_col = {}
 if selected_station:
-    selected_station_name = get_station_name_from_id(selected_station)
     current_year = pd.Timestamp.now().year
     temp_base_path = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', BASE_DATA_PATH_FROM_CONFIG))
     temp_df_for_col_check = None
@@ -336,10 +336,10 @@ if st.sidebar.button("📈 執行 GRU 預測"):
     col1, col2, col3 = st.columns(3)
     with col1:
         csv_data = forecast_df.rename(columns={'ds': '時間', 'yhat': f'預測值_{selected_param_display_original}'}).to_csv(index=False).encode('utf-8')
-        st.download_button("下載預測數據 (CSV)", csv_data, f"{selected_station}_{selected_param_col}_GRU_data.csv", "text/csv", use_container_width=True)
+        st.download_button("下載預測數據 (CSV)", csv_data, f"{selected_station_name}_{selected_param_col}_GRU_data.csv", "text/csv", use_container_width=True)
     with col2:
         html_bytes = fig.to_html(full_html=True, include_plotlyjs='cdn').encode('utf-8')
-        st.download_button("下載預測圖表 (HTML)", html_bytes, f"{selected_station}_{selected_param_col}_GRU_chart.html", "text/html", use_container_width=True)
+        st.download_button("下載預測圖表 (HTML)", html_bytes, f"{selected_station_name}_{selected_param_col}_GRU_chart.html", "text/html", use_container_width=True)
     with col3:
         report_content = f"""
 # GRU 時間序列預測報告

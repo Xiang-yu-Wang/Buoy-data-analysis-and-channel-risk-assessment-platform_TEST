@@ -56,7 +56,7 @@ if st.sidebar.button('🚀 產生熱力圖', key='pages_4_hm_button'):
     st.success('批次分析完成！')
 
     if missing_sources:
-        st.warning(f"注意：以下測站因找不到對應的資料檔案而未被納入分析：`{', '.join(missing_sources)}`")
+        st.warning(f"注意：以下測站因找不到對應的資料檔案而未被納入分析：`{', '.join(get_station_name_from_id(loc) for loc in missing_sources)}`")
 
     display_df = results_df.dropna(subset=[TARGET_COLUMN_NAME])
 

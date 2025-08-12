@@ -126,6 +126,7 @@ def reset_analysis_state():
 # --- 2. 設定使用者輸入介面 (修改處) ---
 st.sidebar.header("分析條件設定")
 station = st.sidebar.selectbox("① 選擇測站", locations, key='pages_7_xc_station', on_change=reset_analysis_state, format_func=get_station_name_from_id)
+station_name = get_station_name_from_id(station)
 
 # 採用新的年份選擇邏輯
 with st.sidebar:
@@ -133,8 +134,8 @@ with st.sidebar:
         station_specific_years = get_station_specific_years(station, all_available_years, base_data_path)
 
 if not station_specific_years:
-    st.sidebar.error(f"測站 '{get_station_name_from_id(station)}' 找不到任何年份資料。")
-    st.error(f"❌ 找不到測站 **{get_station_name_from_id(station)}** 的任何年份資料，請嘗試選擇其他測站。")
+    st.sidebar.error(f"測站 '{station_name}' 找不到任何年份資料。")
+    st.error(f"❌ 找不到測站 **{station_name}** 的任何年份資料，請嘗試選擇其他測站。")
     st.stop()
 
 year = st.sidebar.selectbox("② 選擇年份", station_specific_years, key='pages_7_xc_year', on_change=reset_analysis_state)
@@ -161,11 +162,11 @@ if not st.session_state.analysis_run:
     st.info("👈🏻 請在左方側邊欄設定好分析條件，然後點擊「進行交叉分析」按鈕。")
     st.stop()
 
-with st.spinner(f"正在載入 {get_station_name_from_id(station)} 在 {year}年 的資料..."):
+with st.spinner(f"正在載入 {station_name} 在 {year}年 的資料..."):
     df_year = load_year_data(base_data_path, station, year)
 
 if df_year is None or df_year.empty:
-    st.error(f"❌ 找不到 {get_station_name_from_id(station)} 在 {year}年 的任何資料。")
+    st.error(f"❌ 找不到 {station_name} 在 {year}年 的任何資料。")
     st.session_state.analysis_run = False
 else:
     df_year['time'] = pd.to_datetime(df_year['time'])
@@ -175,7 +176,7 @@ else:
     numeric_cols = df_year.select_dtypes(include=np.number).columns
     df_desc = df_year[numeric_cols].describe().transpose()
     
-    with st.expander(f"📊 資料儀表板：點此查看 {get_station_name_from_id(station)} 在 {year} 年的數據概覽", expanded=True):
+    with st.expander(f"📊 資料儀表板：點此查看 {station_name} 在 {year} 年的數據概覽", expanded=True):
         col1, col2 = st.columns([0.6, 0.4])
         
         with col1:
@@ -274,7 +275,7 @@ else:
         )
         fig_density.update_layout(title_x=0.5)
         
-        st.markdown(f"### 交叉分析結果：{get_station_name_from_id(station)} ({year}年)")
+        st.markdown(f"### 交叉分析結果：{station_name} ({year}年)")
         st.markdown(f"##### **{PARAMETER_INFO.get(param_x_col, {}).get('display_zh', param_x_col)}** vs. **{PARAMETER_INFO.get(param_y_col, {}).get('display_zh', param_y_col)}**")
 
         stat_col1, stat_col2, stat_col3 = st.columns(3)
@@ -346,7 +347,7 @@ Y軸: {param_y_display}
 """
             txt_data = summary_text.encode('utf-8')
             
-            base_filename = f"analysis_{station}_{year}_{param_x_col}_vs_{param_y_col}"
+            base_filename = f"analysis_{station_name}_{year}_{param_x_col}_vs_{param_y_col}"
 
             st.write("**個別檔案下載：**")
             dl_col1, dl_col2, dl_col3 = st.columns(3)

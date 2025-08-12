@@ -130,12 +130,13 @@ if submitted or (st.session_state.current_report_data_pages2 is not None and \
     if submitted or st.session_state.current_report_params_pages2 != (station, year, month, chart_type):
         
         current_station, current_year, current_month, current_chart_type = station, year, month, chart_type
+        current_station_name = get_station_name_from_id(current_station)
 
-        with st.spinner(f"正在載入 {current_station} 在 {current_year}年 的資料..."):
+        with st.spinner(f"正在載入 {current_station_name} 在 {current_year}年 的資料..."):
             df_year = load_year_data(base_data_path, current_station, current_year)
             
         if df_year is None or df_year.empty:
-            st.error(f"❌ 找不到 {current_station} 在 {current_year}年 的任何資料。")
+            st.error(f"❌ 找不到 {current_station_name} 在 {current_year}年 的任何資料。")
             st.session_state.current_report_data_pages2 = None
             st.stop()
 
@@ -143,7 +144,7 @@ if submitted or (st.session_state.current_report_data_pages2 is not None and \
         df_month_original = df_year if current_month == 0 else df_year[df_year['time'].dt.month == current_month]
 
         if df_month_original.empty:
-            st.error(f"❌ 找不到 {current_station} 在 {time_range_str} 的資料。")
+            st.error(f"❌ 找不到 {current_station_name} 在 {time_range_str} 的資料。")
             st.session_state.current_report_data_pages2 = None
             st.stop()
 
@@ -212,11 +213,11 @@ if submitted or (st.session_state.current_report_data_pages2 is not None and \
 
         st.session_state.current_report_data_pages2 = {
             'df_display': df_display, 'df_month_original': df_month_original, 'time_range_str': time_range_str,
-            'current_station': current_station, 'current_year': current_year, 'current_month': current_month,
+            'current_station': current_station_name, 'current_year': current_year, 'current_month': current_month,
             'chart_type': current_chart_type, 'change_points_dict': change_points_dict, 'anomaly_points_dict': anomaly_points_dict
         }
         st.session_state.current_report_params_pages2 = (current_station, current_year, current_month, current_chart_type)
-        st.success(f"✅ 已成功載入並處理 **{current_station}** 在 **{time_range_str}** 的資料！")
+        st.success(f"✅ 已成功載入並處理 **{current_station_name}** 在 **{time_range_str}** 的資料！")
 
     report_data = st.session_state.current_report_data_pages2
     if not report_data or report_data.get('df_display') is None:

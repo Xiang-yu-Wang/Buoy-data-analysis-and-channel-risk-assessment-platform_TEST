@@ -27,6 +27,7 @@ if not all_available_years:
 col1, col2 = st.columns(2)
 with col1:
     station_selected = st.selectbox("選擇測站", locations, key='pages_3_db_station_form', format_func=get_station_name_from_id)
+    station_selected_name = get_station_name_from_id(station_selected)
 
 @st.cache_data
 def get_station_specific_years(station, years_to_check, data_path):
@@ -37,13 +38,13 @@ def get_station_specific_years(station, years_to_check, data_path):
             valid_years.append(year)
     return sorted(valid_years, reverse=True)
 
-with st.spinner(f"正在查詢 {station_selected} 的可用年份..."):
+with st.spinner(f"正在查詢 {station_selected_name} 的可用年份..."):
     station_years = get_station_specific_years(station_selected, all_available_years, base_data_path)
 
 if not station_years:
     with col2:
         st.selectbox("選擇年份", ["該測站無資料"], disabled=True)
-    st.error(f"❌ 找不到測站 **{station_selected}** 的任何年份資料。")
+    st.error(f"❌ 找不到測站 **{station_selected_name}** 的任何年份資料。")
     st.info("請嘗試選擇其他測站。")
     st.stop()
 
@@ -54,7 +55,7 @@ with st.spinner(f"正在載入 {station_selected} 在 {year_selected}年 的資�
     df_year = load_year_data(base_data_path, station_selected, year_selected)
 
 if df_year is None or df_year.empty or 'time' not in df_year.columns:
-    st.error(f"❌ 載入資料時發生預期外的錯誤。找不到 {station_selected} 在 {year_selected}年 的有效資料或時間欄位。")
+    st.error(f"❌ 載入資料時發生預期外的錯誤。找不到 {station_selected_name} 在 {year_selected}年 的有效資料或時間欄位。")
     st.session_state.current_report_data = None
     st.stop()
     
@@ -86,12 +87,13 @@ if submitted or st.session_state.current_report_params != (station_selected, yea
                 'df_selection': df_selection_temp,
                 'time_range_str': time_range_str_temp
             }
-            st.success(f"✅ 已成功載入 **{station_selected}** 在 **{time_range_str_temp}** 的資料！")
+            st.success(f"✅ 已成功載入 **{station_selected_name}** 在 **{time_range_str_temp}** 的資料！")
 
 if st.session_state.current_report_data is not None:
     df_selection = st.session_state.current_report_data['df_selection']
     time_range_str = st.session_state.current_report_data['time_range_str']
     current_station, current_year, current_month = st.session_state.current_report_params
+    current_station_name = get_station_name_from_id(current_station)
 
     if df_selection.empty:
         st.warning("數據載入失敗，請重新選擇並生成報告。")
@@ -221,7 +223,7 @@ if st.session_state.current_report_data is not None:
             lambda x: f"{PARAMETER_INFO.get(x, {}).get('display_zh', x)}{(' (' + PARAMETER_INFO.get(x, {}).get('unit', '') + ')') if PARAMETER_INFO.get(x, {}).get('unit') else ''}")
         fig_box = px.box(df_long, x='參數', y='數值', points='outliers',
                             labels={"參數": "參數", "數值": "數值"},
-                            title=f"{current_station} 在 {time_range_str} 的數據分佈箱形圖")
+                            title=f"{current_station_name} 在 {time_range_str} 的數據分佈箱形圖")
         st.plotly_chart(fig_box, use_container_width=True)
 
         st.subheader("數據趨勢視覺化 (時間序列圖)")
@@ -237,7 +239,7 @@ if st.session_state.current_report_data is not None:
                 
                 if ts_chart_submitted:
                     fig_ts = px.line(df_selection, x='time', y=selected_ts_param_english,
-                        title=f"{current_station} 在 {time_range_str} 的 {PARAMETER_INFO.get(selected_ts_param_english, {}).get('display_zh', selected_ts_param_english)} 趨勢",
+                        title=f"{current_station_name} 在 {time_range_str} 的 {PARAMETER_INFO.get(selected_ts_param_english, {}).get('display_zh', selected_ts_param_english)} 趨勢",
                         labels={"time": "時間", selected_ts_param_english: f"{PARAMETER_INFO.get(selected_ts_param_english, {}).get('display_zh', selected_ts_param_english)} ({PARAMETER_INFO.get(selected_ts_param_english, {}).get('unit', '')})"})
                     fig_ts.update_xaxes(rangeselector=dict(buttons=list([
                             dict(count=1, label="1m", step="month", stepmode="backward"), dict(count=6, label="6m", step="month", stepmode="backward"),
@@ -273,7 +275,7 @@ if st.session_state.current_report_data is not None:
         summary_text_io.write("====================================================\n")
         summary_text_io.write(f" 統計摘要報告\n")
         summary_text_io.write("====================================================\n\n")
-        summary_text_io.write(f"測站: {current_station}\n")
+        summary_text_io.write(f"測站: {current_station_name}\n")
         summary_text_io.write(f"時間範圍: {time_range_str}\n\n")
         summary_text_io.write("----------------------------------------------------\n")
         summary_text_io.write(" 1. 數據品質概覽\n")
@@ -308,11 +310,11 @@ if st.session_state.current_report_data is not None:
         st.markdown("##### **單一檔案下載**")
         d_col1, d_col2, d_col3 = st.columns(3)
         with d_col1:
-            st.download_button(label="📄 下載原始數據 (.csv)", data=raw_data_csv, file_name=f"raw_data_{current_station}_{time_range_str}.csv", mime="text/csv", use_container_width=True)
+            st.download_button(label="📄 下載原始數據 (.csv)", data=raw_data_csv, file_name=f"raw_data_{current_station_name}_{time_range_str}.csv", mime="text/csv", use_container_width=True)
         with d_col2:
-            st.download_button(label="📊 下載統計數據 (.csv)", data=stats_csv, file_name=f"statistics_{current_station}_{time_range_str}.csv", mime="text/csv", use_container_width=True)
+            st.download_button(label="📊 下載統計數據 (.csv)", data=stats_csv, file_name=f"statistics_{current_station_name}_{time_range_str}.csv", mime="text/csv", use_container_width=True)
         with d_col3:
-            st.download_button(label="📝 下載文字摘要 (.txt)", data=summary_txt_content.encode('utf-8'), file_name=f"summary_report_{current_station}_{time_range_str}.txt", mime="text/plain", use_container_width=True)
+            st.download_button(label="📝 下載文字摘要 (.txt)", data=summary_txt_content.encode('utf-8'), file_name=f"summary_report_{current_station_name}_{time_range_str}.txt", mime="text/plain", use_container_width=True)
         
         st.markdown("---")
 
@@ -323,22 +325,22 @@ if st.session_state.current_report_data is not None:
             if has_charts:
                 zip_buffer_html = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer_html, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                    if fig_pie_html: zip_file.writestr(f"charts/quality_pie_chart_{current_station}_{time_range_str}.html", fig_pie_html)
-                    if fig_box_html: zip_file.writestr(f"charts/boxplot_distribution_{current_station}_{time_range_str}.html", fig_box_html)
-                    if fig_ts_html: zip_file.writestr(f"charts/timeseries_chart_{current_station}_{time_range_str}.html", fig_ts_html)
-                st.download_button(label="📈 下載圖表包 (.zip)", data=zip_buffer_html.getvalue(), file_name=f"charts_package_{current_station}_{time_range_str}.zip", mime="application/zip", use_container_width=True)
+                    if fig_pie_html: zip_file.writestr(f"charts/quality_pie_chart_{current_station_name}_{time_range_str}.html", fig_pie_html)
+                    if fig_box_html: zip_file.writestr(f"charts/boxplot_distribution_{current_station_name}_{time_range_str}.html", fig_box_html)
+                    if fig_ts_html: zip_file.writestr(f"charts/timeseries_chart_{current_station_name}_{time_range_str}.html", fig_ts_html)
+                st.download_button(label="📈 下載圖表包 (.zip)", data=zip_buffer_html.getvalue(), file_name=f"charts_package_{current_station_name}_{time_range_str}.zip", mime="application/zip", use_container_width=True)
             else:
                 st.button("📈 無可下載圖表", disabled=True, use_container_width=True)
         with p_col2:
             zip_buffer_all = io.BytesIO()
             with zipfile.ZipFile(zip_buffer_all, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-                zip_file.writestr(f"data/raw_data_{current_station}_{time_range_str}.csv", raw_data_csv)
-                zip_file.writestr(f"data/statistics_{current_station}_{time_range_str}.csv", stats_csv)
-                if fig_pie_html: zip_file.writestr(f"charts/quality_pie_chart_{current_station}_{time_range_str}.html", fig_pie_html)
-                if fig_box_html: zip_file.writestr(f"charts/boxplot_distribution_{current_station}_{time_range_str}.html", fig_box_html)
-                if fig_ts_html: zip_file.writestr(f"charts/timeseries_chart_{current_station}_{time_range_str}.html", fig_ts_html)
-                zip_file.writestr(f"summary_report_{current_station}_{time_range_str}.txt", summary_txt_content.encode('utf-8'))
-            st.download_button(label="📥 一鍵打包所有產出 (.zip)", data=zip_buffer_all.getvalue(), file_name=f"analysis_package_{current_station}_{time_range_str}.zip", mime="application/zip", use_container_width=True)
+                zip_file.writestr(f"data/raw_data_{current_station_name}_{time_range_str}.csv", raw_data_csv)
+                zip_file.writestr(f"data/statistics_{current_station_name}_{time_range_str}.csv", stats_csv)
+                if fig_pie_html: zip_file.writestr(f"charts/quality_pie_chart_{current_station_name}_{time_range_str}.html", fig_pie_html)
+                if fig_box_html: zip_file.writestr(f"charts/boxplot_distribution_{current_station_name}_{time_range_str}.html", fig_box_html)
+                if fig_ts_html: zip_file.writestr(f"charts/timeseries_chart_{current_station_name}_{time_range_str}.html", fig_ts_html)
+                zip_file.writestr(f"summary_report_{current_station_name}_{time_range_str}.txt", summary_txt_content.encode('utf-8'))
+            st.download_button(label="📥 一鍵打包所有產出 (.zip)", data=zip_buffer_all.getvalue(), file_name=f"analysis_package_{current_station_name}_{time_range_str}.zip", mime="application/zip", use_container_width=True)
 
     else:
         st.info("沒有數值型數據可供分析。")

@@ -132,6 +132,7 @@ if not locations:
     st.stop()
 
 selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_11_transformer_station', format_func=get_station_name_from_id)
+selected_station_name = get_station_name_from_id(selected_station)
 
 predictable_params_config_map = {
     col_name: info["display_zh"] for col_name, info in st.session_state.parameter_info.items()
@@ -278,13 +279,13 @@ if st.sidebar.button("🤖 執行 Transformer 預測"):
 
     if df.empty or selected_param_col not in df.columns:
         if df.empty:
-            st.error(f"所選測站 '{selected_station}' 沒有成功載入任何數據。")
+            st.error(f"所選測站 '{selected_station_name}' 沒有成功載入任何數據。")
         else:
-            st.error(f"所選測站 '{selected_station}' 的數據文件缺少參數 '{selected_param_display_original}' (原始列名: '{selected_param_col}')。")
+            st.error(f"所選測站 '{selected_station_name}' 的數據文件缺少參數 '{selected_param_display_original}' (原始列名: '{selected_param_col}')。")
             st.info(f"數據中可用的列: {df.columns.tolist()}")
         st.stop()
 
-    st.info(f"正在對測站 **{selected_station}** 的參數 **{selected_param_display_original}** 執行 Transformer 預測...")
+    st.info(f"正在對測站 **{selected_station_name}** 的參數 **{selected_param_display_original}** 執行 Transformer 預測...")
 
     # --- 數據預處理 ---
     df_processed = df[['ds', selected_param_col]].copy()
@@ -571,7 +572,7 @@ if st.sidebar.button("🤖 執行 Transformer 預測"):
     
     # 應用中文字體 (如果配置了)
     fig.update_layout(
-        title=f"{selected_station} - {selected_param_display_original} Transformer 未來 {forecast_period_value} {forecast_unit_display} 預測",
+        title=f"{selected_station_name} - {selected_param_display_original} Transformer 未來 {forecast_period_value} {forecast_unit_display} 預測",
         xaxis_title="時間",
         yaxis_title=f"{selected_param_display_original} {param_unit}",
         hovermode="x unified",
@@ -590,6 +591,6 @@ if st.sidebar.button("🤖 執行 Transformer 預測"):
     st.download_button(
         label="下載 Transformer 預測 CSV 文件",
         data=csv_data,
-        file_name=f"{selected_station}_{selected_param_col}_Transformer_forecast.csv",
+        file_name=f"{selected_station_name}_{selected_param_col}_Transformer_forecast.csv",
         mime="text/csv",
     )

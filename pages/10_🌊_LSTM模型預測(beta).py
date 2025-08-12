@@ -256,6 +256,7 @@ if not locations:
     st.stop()
 
 selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_10_lstm_station', format_func=get_station_name_from_id)
+selected_station_name = get_station_name_from_id(selected_station)
 df_initial_check = load_data(selected_station, st.session_state.get('parameter_info', {}))
 
 available_predictable_params_display_to_col = {}
@@ -329,7 +330,7 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
         st.stop()
 
     if df_initial_check.empty or selected_param_col not in df_initial_check.columns:
-        st.error(f"所選測站 '{selected_station}' 的數據文件缺少參數 '{selected_param_display}'。")
+        st.error(f"所選測站 '{selected_station_name}' 的數據文件缺少參數 '{selected_param_display}'。")
         st.stop()
     
     with st.spinner("STEP 1/3: 正在預處理數據..."):
@@ -360,7 +361,7 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
             st.stop()
 
     model_params = {
-        "page": "lstm_prediction", "station": selected_station, "param": selected_param_col,
+        "page": "lstm_prediction", "station": selected_station_name, "param": selected_param_col,
         "freq": selected_freq_pandas, "look_back": look_back, "lstm_units": lstm_units, "epochs": epochs,
         "batch_size": batch_size, "dropout": dropout_rate, "smoothing": smoothing_window if apply_smoothing else 0,
         "start_date": train_start_date.strftime('%Y-%m-%d'), "end_date": train_end_date.strftime('%Y-%m-%d'),
@@ -577,7 +578,7 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
         fig.add_trace(go.Scatter(x=train_predict_df['ds'], y=train_predict_df['yhat_train'], mode='lines', name='訓練集預測', line=dict(dash='dot')))
         fig.add_trace(go.Scatter(x=test_predict_df['ds'], y=test_predict_df['yhat_test'], mode='lines', name='測試集預測', line=dict(dash='dot')))
         fig.add_trace(go.Scatter(x=forecast_df['ds'], y=forecast_df['yhat'], mode='lines', name='未來預測', line=dict(dash='dash')))
-        fig.update_layout(title=f"{selected_station} - {selected_param_display} LSTM 未來 {forecast_period_value} {selected_prediction_freq_display.split(' ')[0]} 預測", xaxis_title="時間", yaxis_title=f"{selected_param_display} {param_unit}", hovermode="x unified", height=600)
+        fig.update_layout(title=f"{selected_station_name} - {selected_param_display} LSTM 未來 {forecast_period_value} {selected_prediction_freq_display.split(' ')[0]} 預測", xaxis_title="時間", yaxis_title=f"{selected_param_display} {param_unit}", hovermode="x unified", height=600)
         st.plotly_chart(fig, use_container_width=True, key="forecast_chart")
 
         # 3. 在圖表下方，顯示風險評估結果
@@ -647,7 +648,7 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
             st.download_button(
                 label="下載預測數據 (CSV)",
                 data=csv_data,
-                file_name=f"{selected_station}_{selected_param_col}_LSTM_forecast_data.csv",
+                file_name=f"{selected_station_name}_{selected_param_col}_LSTM_forecast_data.csv",
                 mime="text/csv",
                 use_container_width=True
             )
@@ -659,7 +660,7 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
             st.download_button(
                 label="下載預測圖表 (HTML)",
                 data=fig_bytes,
-                file_name=f"{selected_station}_{selected_param_col}_LSTM_forecast_chart.html",
+                file_name=f"{selected_station_name}_{selected_param_col}_LSTM_forecast_chart.html",
                 mime="text/html",
                 use_container_width=True
             )
@@ -670,7 +671,7 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
 
             report_content = f"""
     # LSTM 時間序列預測報告
-    ## 測站: {selected_station}
+    ## 測站: {selected_station_name}
     ## 預測參數: {selected_param_display} ({param_unit})
 
     ---
@@ -717,7 +718,7 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
             st.download_button(
                 label="下載完整報告 (TXT)",
                 data=report_content.encode('utf-8'),
-                file_name=f"{selected_station}_{selected_param_col}_LSTM_report.txt",
+                file_name=f"{selected_station_name}_{selected_param_col}_LSTM_report.txt",
                 mime="text/plain",
                 use_container_width=True,
                 help="下載包含所有執行參數與結果的文本報告"
