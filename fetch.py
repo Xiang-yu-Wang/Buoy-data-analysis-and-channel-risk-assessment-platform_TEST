@@ -1,8 +1,9 @@
 import schedule
 import time
 import requests
+import json
 import csv
-from os import makedirs, mkdir, path
+from os import makedirs, path
 from datetime import datetime, timedelta
 
 OUTPUT = "dataset/buoy/"
@@ -97,6 +98,7 @@ def fetch_data(device_id: str):
 
 def parse_to_csv(data, device_id):
     rows = data if isinstance(data, list) else [data]
+    # TODO: The beginning of the month may contain data from the previous month
     filename = f"{datetime.now().strftime('%Y%m')}.csv"
     output = path.join(OUTPUT, device_id, filename)
 
@@ -120,22 +122,33 @@ def parse_to_csv(data, device_id):
 
 
 def fetch_all_devices():
-    device_ids = [
-        "Vector_CWB_FB_46694A",
-        "Vector_CWB_FB_46714D",
-        "Vector_WRA_FB_46706A",
-        "Vector_WRA_FB_46759A",
-        "Vector_WRA_FB_WRA007",
-        "Vector_WRA_FB_COMC08",
-        "Vector_NAMR_FB_35A0004",
-        "Vector_NAMR_FB_31A0005",
-        "Vector_NAMR_FB_33A0006"
-    ]
+    # Write a devices data file
+    API_URL = "https://nodass.namr.gov.tw/noapi/query/OBS?StationChargeID[]=OCA&StationChargeID[]=CWA&StationChargeID[]=WRA&StationChargeID[]=IHMT&StationChargeID[]=NAMR"
+    print(f"Fetching devices data from {API_URL}")
+    response = requests.get(API_URL, timeout=10)
+    response.raise_for_status()
+
+    # Return Array of devices
+    response_data = response.json()
+
+    # Filter StationTypeID to only include "FB" (Floating Buoy)
+    devices_data = [device for device in response_data if device.get("StationTypeID") == "FB"]
+    
+    # Convert the list of devices to JSON format
+    devices_data = json.dumps(devices_data)
+
+    # Write the devices data to a file (output/devices.json)
+    devices_output = path.join(OUTPUT, "devices.json")
+    with open(devices_output, "w", encoding="utf-8") as f:
+        f.write(devices_data)
+    
+    device_ids = [device["StationID"] for device in response_data]
     for device_id in device_ids:
         makedirs(path.join(OUTPUT, device_id), exist_ok=True)
         fetch_data(device_id)
 
 # Schedule every 2 days at 08:00
+# TODO: Maybe every 2 days is too long, consider changing to 1 day
 schedule.every(2).days.at("08:00").do(fetch_all_devices)
 
 # Run immediately on startup
