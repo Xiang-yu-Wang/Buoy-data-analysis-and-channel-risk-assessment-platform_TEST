@@ -102,7 +102,7 @@ def parse_to_csv(data, device_id):
     filename = f"{datetime.now().strftime('%Y%m')}.csv"
     output = path.join(OUTPUT, device_id, filename)
 
-    with open(output, mode="a", newline="", encoding="utf-8") as file:
+    with open(output, mode="a+", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=CSV_COLUMNS)
 
         if file.tell() == 0:
@@ -122,26 +122,32 @@ def parse_to_csv(data, device_id):
 
 
 def fetch_all_devices():
-    # Write a devices data file
-    API_URL = "https://nodass.namr.gov.tw/noapi/query/OBS?StationChargeID[]=OCA&StationChargeID[]=CWA&StationChargeID[]=WRA&StationChargeID[]=IHMT&StationChargeID[]=NAMR"
-    print(f"Fetching devices data from {API_URL}")
-    response = requests.get(API_URL, timeout=10)
-    response.raise_for_status()
+    try:
+        # Write a devices data file
+        API_URL = "https://nodass.namr.gov.tw/noapi/query/OBS?StationChargeID[]=OCA&StationChargeID[]=CWA&StationChargeID[]=WRA&StationChargeID[]=IHMT&StationChargeID[]=NAMR"
+        print(f"Fetching devices data from {API_URL}")
+        response = requests.get(API_URL, timeout=10)
+        response.raise_for_status()
+        response_data = response.json()
 
-    # Return Array of devices
-    response_data = response.json()
+        # Filter StationTypeID to only include "FB" (Floating Buoy)
+        devices_data = [device for device in response_data if device.get("StationTypeID") == "FB"]
+        # Convert the list of devices to JSON format
+        devices_data = json.dumps(devices_data)
+        # Write the devices data to a file (output/devices.json)
+        devices_output = path.join(OUTPUT, "devices.json")
+        with open(devices_output, "w", encoding="utf-8") as f:
+            f.write(devices_data)
+    except requests.RequestException as e:
+        print(f"❌ Failed to fetch devices data: {e}")
+        if not path.exists(path.join(OUTPUT, "devices.json")):
+            print("⚠️ No local devices data file found. Exiting.")
+            return
+        # If the request fails, try to read from the local file
+        # fetch devices data from the file (dataset/devices.json)
+        with open("dataset/buoy/devices.json", "r", encoding="utf-8") as f:
+            response_data = json.load(f)
 
-    # Filter StationTypeID to only include "FB" (Floating Buoy)
-    devices_data = [device for device in response_data if device.get("StationTypeID") == "FB"]
-    
-    # Convert the list of devices to JSON format
-    devices_data = json.dumps(devices_data)
-
-    # Write the devices data to a file (output/devices.json)
-    devices_output = path.join(OUTPUT, "devices.json")
-    with open(devices_output, "w", encoding="utf-8") as f:
-        f.write(devices_data)
-    
     device_ids = [device["StationID"] for device in response_data]
     for device_id in device_ids:
         makedirs(path.join(OUTPUT, device_id), exist_ok=True)
