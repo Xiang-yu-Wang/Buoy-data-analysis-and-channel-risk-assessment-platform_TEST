@@ -20,201 +20,13 @@ st.write("本地圖標示了所有已納入分析的浮標測站的地理位置�
 st.markdown("---")
 
 # --- 2. 從 session_state 讀取共享資料並進行校驗 ---
-if 'locations' not in st.session_state:
-    st.error("❌ 找不到測站列表 (locations)，請返回主頁面重新載入資料。")
-    st.stop()
-if 'station_coords' not in st.session_state:
-    st.session_state['station_coords'] = {}
-if 'base_data_path' not in st.session_state or 'available_years' not in st.session_state:
-    st.error("❌ 找不到資料路徑或可用年份，請返回主頁面重新載入資料。")
-    st.stop()
-
-locations = st.session_state['locations']
-station_coords = st.session_state['station_coords']
+devices = st.session_state['devices']
 base_data_path = st.session_state['base_data_path']
 available_years = st.session_state['available_years']
 
-# 座標自我修正與補全
-known_buoy_coords = {
-    "成功浮球式波浪站": {
-        "lat": 23.1332,
-        "lon": 121.4206
-    },
-    "花蓮資料浮標": {
-        "lat": 24.0311,
-        "lon": 121.6325
-    },
-    "新竹資料浮標": {
-        "lat": 24.7625,
-        "lon": 120.8422
-    },
-    "龍洞資料浮標": {
-        "lat": 25.0969,
-        "lon": 121.9222
-    },
-    "小琉球資料浮標": {
-        "lat": 22.3131,
-        "lon": 120.3639
-    },
-    "東沙島資料浮標": {
-        "lat": 21.0636,
-        "lon": 118.8572
-    },
-    "馬祖資料浮標": {
-        "lat": 26.3525,
-        "lon": 120.5153
-    },
-    "七美資料浮標": {
-        "lat": 23.191,
-        "lon": 119.6647
-    },
-    "富貴角資料浮標": {
-        "lat": 25.305,
-        "lon": 121.5364
-    },
-    "龜山島資料浮標": {
-        "lat": 24.8469,
-        "lon": 121.9256
-    },
-    "蘇澳資料浮標": {
-        "lat": 24.6256,
-        "lon": 121.8761
-    },
-    "鵝鑾鼻資料浮標": {
-        "lat": 21.900278,
-        "lon": 120.8225
-    },
-    "金門資料浮標": {
-        "lat": 24.3797,
-        "lon": 118.4153
-    },
-    "七股資料浮標": {
-        "lat": 23.0972,
-        "lon": 120.0075
-    },
-    "澎湖資料浮標": {
-        "lat": 23.7283,
-        "lon": 119.5519
-    },
-    "臺東資料浮標": {
-        "lat": 22.7242,
-        "lon": 121.1442
-    },
-    "彌陀資料浮標": {
-        "lat": 22.7653,
-        "lon": 120.165
-    },
-    "蘭嶼資料浮標": {
-        "lat": 22.0753,
-        "lon": 121.5828
-    },
-    "彭佳嶼資料浮標": {
-        "lat": 25.6049,
-        "lon": 122.0588
-    },
-    "臺中資料浮標": {
-        "lat": 24.2111,
-        "lon": 120.4094
-    },
-    "蜜月灣資料浮標站": {
-        "lat": 24.9475,
-        "lon": 121.92916
-    },
-    "東吉嶼資料浮標站": {
-        "lat": 23.23972,
-        "lon": 119.6575
-    },
-    "潮境資料浮標站": {
-        "lat": 25.14361,
-        "lon": 121.80916
-    },
-    "南灣資料浮標站": {
-        "lat": 21.94666,
-        "lon": 120.76361
-    },
-    "鼻頭角資料浮標站": {
-        "lat": 25.12472,
-        "lon": 121.90833
-    },
-    "臺北港資料浮標": {
-        "lat": 25.1658,
-        "lon": 121.35
-    },
-    "重件碼頭": {
-        "lat": 25.047966,
-        "lon": 121.930271
-    },
-    "回船池": {
-        "lat": 25.046395,
-        "lon": 121.930364
-    },
-    "員貝嶼": {
-        "lat": 23.64861,
-        "lon": 119.63888
-    },
-    "大武崙": {
-        "lat": 25.173708,
-        "lon": 121.714362
-    },
-    "澎南": {
-        "lat": 23.5075,
-        "lon": 119.62277
-    },
-    "萬里桐": {
-        "lat": 21.997843,
-        "lon": 120.695747
-    },
-    "一般碼頭": {
-        "lat": 25.047493,
-        "lon": 121.929533
-    },
-    "臺北港-資料浮標站": {
-        "lat": 25.165925,
-        "lon": 121.3503083
-    },
-    "安平港-浮球式波流觀測站": {
-        "lat": 22.9637299,
-        "lon": 120.1495881
-    },
-    "布袋港-浮球式波流觀測站": {
-        "lat": 23.3736111,
-        "lon": 120.1169444
-    },
-    "基隆港-底碇式波流觀測站": {
-        "lat": 25.164083,
-        "lon": 121.747167
-    },
-    "蘇澳港-底碇式波流觀測副站": {
-        "lat": 24.590119,
-        "lon": 121.885447
-    },
-    "花蓮港-底碇式波流觀測站": {
-        "lat": 23.967217,
-        "lon": 121.626014
-    },
-    "高雄港-一港口底碇式波流觀測站": {
-        "lat": 22.616833,
-        "lon": 120.253694
-    },
-    "馬祖南竿-底碇式波流觀測站": {
-        "lat": 26.168711,
-        "lon": 119.9389167
-    },
-    "臺中港-底碇式波流觀測站(綠燈塔)": {
-        "lat": 24.303317,
-        "lon": 120.481933
-    },
-    "南灣小浮標": {
-        "lat": 21.94777,
-        "lon": 120.76463
-    }
-}
-
-for station_name, coords in known_buoy_coords.items():
-    station_coords[station_name] = coords
-
 with st.sidebar.expander("🗺️ 測站座標診斷"):
-    st.json(station_coords)
+    for device in devices:
+        st.json(device, expanded=False)
 
 # --- 3. 分析模式選擇 ---
 analysis_mode = st.radio(
@@ -224,25 +36,20 @@ analysis_mode = st.radio(
 # --- 模式一：靜態地圖 ---
 if analysis_mode == "靜態地圖":
     st.subheader("🌐 所有測站靜態地圖")
-    map_locations = {k: v for k, v in station_coords.items() if k in locations and isinstance(v, dict) and v.get('lat') is not None}
     
-    if map_locations:
-        m = folium.Map(location=[23.6, 120.6], zoom_start=8)
+    m = folium.Map(location=[23.6, 120.6], zoom_start=8)
 
-        for name, row in map_locations.items():
-            folium.Marker(
-                location=[row['lat'], row['lon']],
-                popup=folium.Popup(f"<a href='/單站資料探索?station={name}' target='_blank'>{name}</a>", max_width=300),
-                icon=folium.Icon(color='blue', icon='info-sign', prefix='glyphicon')
-            ).add_to(m)
+    for device in devices:
+        folium.Marker(
+            location=[device['CenterLatitude'], device['CenterLongitude']],
+            popup=folium.Popup(f"<a href='/單站資料探索?station={device['StationID']}' target='_blank'>{device['Title']}</a>", max_width=300),
+            icon=folium.Icon(color='blue', icon='info-sign', prefix='glyphicon')
+        ).add_to(m)
 
 
-        # Display map and capture interaction
-        map_data = st_folium(m, width=700, height=500)
+    # Display map and capture interaction
+    map_data = st_folium(m, width=700, height=500)
 
-        # 靜態地圖也使用台灣中心視角
-    else:
-        st.warning("找不到任何具有有效座標的測站可供顯示。")
 
 # --- 模式二：動態向量場 ---
 elif analysis_mode == "動態向量場":
@@ -270,14 +77,16 @@ elif analysis_mode == "動態向量場":
         arrow_angle_converter = lambda d: d
 
     select_all_stations = st.sidebar.checkbox("全選/反選所有測站", value=True, key='pages_1_select_all_stations')
-    default_selection = locations if select_all_stations else []
-    selected_stations = st.sidebar.multiselect("選擇要顯示的測站:", options=locations, default=default_selection, key='pages_1_vector_stations_select')
+    default_selection = st.session_state['devices'] if select_all_stations else []
+
+    # use title as multiselect options
+    selected_stations = st.sidebar.multiselect("選擇要顯示的測站:", options=st.session_state['devices'], default=default_selection, key='pages_1_vector_stations_select', format_func=lambda x: x['Title'])
     selected_year_for_vector = st.sidebar.selectbox("選擇年份:", options=available_years, index=len(available_years) - 1 if available_years else 0, key='pages_1_vector_year_select')
     animation_freq_options = {"每小時平均": "h", "每日平均": "D", "每週平均": "W", "每月平均": "ME"}
     selected_anim_freq_display = st.sidebar.selectbox("動畫時間間隔:", options=list(animation_freq_options.keys()), index=1, key='pages_1_anim_freq_select')
     selected_anim_freq_pandas = animation_freq_options[selected_anim_freq_display]
     
-    current_params_tuple = (selected_vector_type, tuple(sorted(selected_stations)), selected_year_for_vector, selected_anim_freq_pandas)
+    current_params_tuple = (selected_vector_type, tuple(sorted([ device['StationID'] for device in selected_stations if 'StationID' in device ])), selected_year_for_vector, selected_anim_freq_pandas)
 
     if 'generated_params' in st.session_state and st.session_state.generated_params != current_params_tuple:
         st.sidebar.warning("⚠️ 設定已變更，請點擊下方按鈕重新產生圖表。")
@@ -293,25 +102,27 @@ elif analysis_mode == "動態向量場":
         with st.spinner(f"正在處理 {len(selected_stations)} 個測站的數據..."):
             all_vector_data_processed, skipped_stations = [], []
             progress_bar = st.progress(0, text="準備開始...")
-            for i, station_name in enumerate(selected_stations):
+            for i, station in enumerate(selected_stations):
+                station_id = station['StationID']
+                station_name = station['Title']
+
                 progress_bar.progress((i + 1) / len(selected_stations), text=f"處理中: {station_name}")
-                df_station_year = load_year_data(base_data_path, station_name, selected_year_for_vector)
+                df_station_year = load_year_data(base_data_path, station_id, selected_year_for_vector)
                 if df_station_year is None or df_station_year.empty:
-                    skipped_stations.append((station_name, f"找不到 {selected_year_for_vector} 年資料")); continue
+                    skipped_stations.append((station_id, f"找不到 {selected_year_for_vector} 年資料")); continue
                 if 'time' not in df_station_year.columns:
                     df_station_year.reset_index(inplace=True); df_station_year.rename(columns={df_station_year.columns[0]: 'time'}, inplace=True)
                 df_station_year['time'] = pd.to_datetime(df_station_year['time'], errors='coerce')
                 df_station_year.dropna(subset=['time', direction_col, magnitude_col], inplace=True)
                 if df_station_year.empty:
-                    skipped_stations.append((station_name, "必要欄位無有效數值")); continue
+                    skipped_stations.append((station_id, "必要欄位無有效數值")); continue
                 df_resampled = df_station_year.set_index('time')[[direction_col, magnitude_col]].apply(pd.to_numeric, errors='coerce').resample(selected_anim_freq_pandas).mean().dropna().reset_index()
                 if df_resampled.empty: continue
-                current_station_coords = station_coords.get(station_name)
-                if not current_station_coords or current_station_coords.get('lat') is None:
-                    skipped_stations.append((station_name, "缺乏經緯度座標")); continue
+                current_station_coords = next((device for device in devices if device['Title'] == station_name), None)
                 df_resampled['arrow_angle'] = df_resampled[direction_col].apply(arrow_angle_converter)
-                df_resampled['station_name'] = station_name
-                df_resampled['lat'] = current_station_coords.get('lat'); df_resampled['lon'] = current_station_coords.get('lon')
+                df_resampled['station_name'] = station_id
+                df_resampled['lat'] = current_station_coords['CenterLatitude'] if current_station_coords else np.nan
+                df_resampled['lon'] = current_station_coords['CenterLongitude'] if current_station_coords else np.nan
                 all_vector_data_processed.append(df_resampled)
             progress_bar.empty()
 

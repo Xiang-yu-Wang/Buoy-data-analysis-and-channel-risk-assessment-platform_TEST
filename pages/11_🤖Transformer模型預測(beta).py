@@ -13,7 +13,7 @@ from keras.layers import Input, Dense, Dropout, LayerNormalization, MultiHeadAtt
 from keras.callbacks import EarlyStopping
 import glob
 
-from utils.helpers import initialize_session_state 
+from utils.helpers import get_station_name_from_id, initialize_session_state, load_data 
 
 # 設置 TensorFlow 日誌級別，抑制 INFO 訊息
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
@@ -28,186 +28,6 @@ initialize_session_state()
 
 st.title("🤖 海洋數據 Transformer 模型預測")
 st.markdown("使用 Transformer 類神經網絡預測海洋數據的未來趨勢。")
-
-# --- 輔助函數和數據載入 ---
-CONFIG_PATH = 'config.json'
-
-@st.cache_data
-def load_config():
-    """載入配置檔"""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    possible_config_paths = [
-        os.path.join(current_dir, CONFIG_PATH), # 當前頁面所在的目錄
-        os.path.join(current_dir, '..', CONFIG_PATH) # 應用根目錄
-    ]
-
-    for path in possible_config_paths:
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
-                # 兼容舊版配置中的經緯度鍵名
-                if "STATION_COORDS" in config_data:
-                    new_coords = {}
-                    for station, coords in config_data["STATION_COORDS"].items():
-                        new_coords[station] = {
-                            "latitude": coords.get("lat", coords.get("latitude")),
-                            "longitude": coords.get("lon", coords.get("longitude"))
-                        }
-                    config_data["STATION_COORDS"] = new_coords
-                return config_data
-    st.error(f"錯誤: 配置檔 '{CONFIG_PATH}' 未找到。請確保它存在於應用程式的根目錄或 Streamlit 頁面所在目錄。")
-    return {}
-
-config = load_config()
-
-BASE_DATA_PATH_CONFIG = config.get("BASE_DATA_PATH", "資料檔/浮標資料")
-# 構建到數據文件夾的絕對路徑
-BASE_DATA_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', BASE_DATA_PATH_CONFIG))
-
-STATION_COORDS = config.get("STATION_COORDS", {})
-PARAMETER_INFO = config.get("PARAMETER_INFO", {})
-DATA_SUBFOLDERS_PRIORITY = config.get("DATA_SUBFOLDERS_PRIORITY", ["qc", "QC", "real time", "real_time", "RealTime", "Real Time", "realtime"])
-CHINESE_FONT_PATH = config.get("CHINESE_FONT_PATH")
-
-@st.cache_data(ttl=3600, show_spinner="正在載入並預處理數據...")
-def load_data_for_page(station_name, param_info_map):
-    """
-    載入指定測站的數據，處理多個子文件夾，並進行初步的時間序列解析。
-    優化：增加日期格式推斷，避免 UserWarning。
-    """
-    with st.expander(f"查看測站 '{station_name}' 的數據載入及初步處理日誌", expanded=False):
-        st.info(f"嘗試從基本路徑 `{BASE_DATA_PATH}` 載入測站 `{station_name}` 的數據。")
-        station_data_base_path = os.path.join(BASE_DATA_PATH, station_name)
-
-        all_dfs = []
-        found_any_file = False
-
-        csv_header_row = 0
-        if station_name in ["小琉球資料浮標", "南灣資料浮標", "蘇澳資料浮標"]:
-            csv_header_row = 1
-            st.info(f"檢測到測站 '{station_name}'，將使用 CSV 文件的 **第二行** 作為列名 (header=1)。")
-        else:
-            st.info(f"未明確指定測站 '{station_name}' 的 CSV 檔頭行，將預設使用 **第一行** 作為列名 (header=0)。")
-
-        for subfolder in DATA_SUBFOLDERS_PRIORITY:
-            folder_path = os.path.join(station_data_base_path, subfolder)
-            if os.path.isdir(folder_path):
-                csv_files = (glob.glob(os.path.join(folder_path, '*.csv')) +
-                             glob.glob(os.path.join(folder_path, '*.CSV')))
-                if csv_files:
-                    st.info(f"在 `{folder_path}` 中找到 {len(csv_files)} 個 CSV 檔案。")
-                    found_any_file = True
-                    for file_path in sorted(csv_files):
-                        try:
-                            encodings = ['utf-8', 'latin1', 'big5', 'cp950']
-                            df_part = None
-                            for enc in encodings:
-                                try:
-                                    df_part = pd.read_csv(file_path, header=csv_header_row, encoding=enc, engine='python')
-                                    break
-                                except UnicodeDecodeError:
-                                    continue
-                            if df_part is None:
-                                st.warning(f"文件 '{file_path}' 無法使用常見編碼解析。跳過此文件。")
-                                continue
-
-                            time_col = None
-                            possible_time_cols = ['Time', 'time', 'UTC', 'GMT', 'Local_Time', 'Date', 'DateTime', 'TIME_UTC', 'Time (UTC)', 'time(UTC)', 'Time (LST)']
-                            actual_time_cols_in_df = [col for col in df_part.columns if col in possible_time_cols]
-                            
-                            # --- 優化日期時間解析邏輯 ---
-                            for col in actual_time_cols_in_df:
-                                df_part[col] = df_part[col].astype(str).str.strip() # 確保是字串並去除空白
-                                
-                                # 嘗試多種常見日期時間格式
-                                # 注意：您可以根據實際數據中可能出現的格式進行增補或調整
-                                possible_formats = [
-                                    '%Y-%m-%d %H:%M:%S', # 2023-01-01 15:30:00
-                                    '%Y/%m/%d %H:%M:%S', # 2023/01/01 15:30:00
-                                    '%Y-%m-%d %H:%M',   # 2023-01-01 15:30
-                                    '%Y/%m/%d %H:%M',   # 2023/01/01 15:30
-                                    '%Y-%m-%d %H',      # 2023-01-01 15
-                                    '%Y/%m/%d %H',      # 2023/01/01 15
-                                    '%Y-%m-%d',         # 2023-01-01
-                                    '%Y/%m/%d',         # 2023/01/01
-                                    '%m/%d/%Y %H:%M:%S', # 01/01/2023 15:30:00 (美式)
-                                    '%d-%m-%Y %H:%M:%S'  # 01-01-2023 15:30:00 (歐式)
-                                ]
-                                
-                                parsed_dates = pd.Series(dtype='datetime64[ns]') # 初始化為空 Series
-                                best_valid_ratio = 0
-                                
-                                for fmt in possible_formats:
-                                    temp_parsed = pd.to_datetime(df_part[col], format=fmt, errors='coerce')
-                                    current_valid_ratio = temp_parsed.count() / len(df_part) if len(df_part) > 0 else 0
-                                    
-                                    if current_valid_ratio > best_valid_ratio:
-                                        best_valid_ratio = current_valid_ratio
-                                        parsed_dates = temp_parsed
-                                        if best_valid_ratio == 1.0: # 如果完美解析，就停止嘗試其他格式
-                                            break
-                                
-                                # 如果嘗試了所有格式後，解析成功率仍低於閾值，則回退到自動推斷（可能會有警告）
-                                if best_valid_ratio < 0.5 and len(df_part) > 0: # 假設 50% 是可接受的最低成功率
-                                    st.warning(f"對於文件 '{file_path}' 中的時間列 '{col}'，無法通過常見格式解析，嘗試自動推斷。這可能導致性能問題或部分日期錯誤。")
-                                    parsed_dates = pd.to_datetime(df_part[col], errors='coerce') # 回退到自動推斷
-                                
-                                if not parsed_dates.isnull().all() and parsed_dates.count() / len(df_part) > 0.5:
-                                    time_col = col
-                                    df_part['ds'] = parsed_dates
-                                    break
-
-                            if time_col is None or df_part['ds'].isnull().all():
-                                st.warning(f"文件 '{file_path}' 中未找到有效的時間列 ({', '.join(possible_time_cols)})，或時間格式無法解析。跳過此文件。")
-                                continue
-                            
-                            df_part.set_index('ds', inplace=True)
-                            all_dfs.append(df_part)
-                        except Exception as e:
-                            st.warning(f"載入或處理文件 '{file_path}' 時發生錯誤：{e}。跳過此文件。")
-                            continue
-                else:
-                    st.info(f"在 `{folder_path}` 中沒有找到 CSV 檔案。")
-
-        if not found_any_file:
-            st.error(f"錯誤：在測站 '{station_name}' 的任何指定子文件夾中都沒有找到有效的數據文件。")
-            st.info(f"預期的測站數據根路徑: `{station_data_base_path}`")
-            st.info(f"嘗試尋找的子文件夾: `{', '.join(DATA_SUBFOLDERS_PRIORITY)}`")
-            return pd.DataFrame()
-
-        if not all_dfs:
-            st.error(f"錯誤：雖然找到了 CSV 檔案，但沒有任何檔案成功載入並解析出有效時間序列數據。")
-            return pd.DataFrame()
-
-        combined_df = pd.concat(all_dfs).sort_index()
-        combined_df = combined_df[~combined_df.index.duplicated(keep='first')]
-
-        cleaned_df = combined_df.copy()
-
-        final_cols_to_keep = []
-        for param_key, param_info in param_info_map.items():
-            if param_key in cleaned_df.columns:
-                cleaned_df[param_key] = pd.to_numeric(cleaned_df[param_key], errors='coerce')
-                valid_ratio = cleaned_df[param_key].count() / len(cleaned_df) if len(cleaned_df) > 0 else 0
-
-                if param_info.get("type") == "linear" and valid_ratio > 0.5:
-                    final_cols_to_keep.append(param_key)
-                elif param_info.get("type") == "circular" and valid_ratio > 0.5: # 允許 circular 數據存在但不納入線性預測
-                     pass
-                else:
-                    st.info(f"列 '{param_key}' (顯示名稱: {param_info.get('display_zh', 'N/A')}) 因數據類型不符、空值過多 ({valid_ratio*100:.2f}%) 或非線性類型而被排除在主要分析之外。")
-            else:
-                st.info(f"配置文件中的參數 '{param_info.get('display_zh', param_key)}' (原始列名: '{param_key}') 未在數據文件中找到。")
-
-        cleaned_df = cleaned_df[final_cols_to_keep]
-
-        if cleaned_df.empty:
-            st.error(f"錯誤：合併並清理後的數據為空。請檢查原始文件內容和列名是否與 config.json 匹配。")
-            return pd.DataFrame()
-        
-        cleaned_df.reset_index(inplace=True) 
-
-    return cleaned_df
 
 def analyze_data_quality(df, relevant_params):
     """分析數據品質，提供缺失值、零值、負值和異常值報告。"""
@@ -306,23 +126,24 @@ def create_sequences(data, look_back):
 # --- 側邊欄：Transformer 預測設定控制項 ---
 st.sidebar.header("Transformer 預測設定")
 
-locations = list(STATION_COORDS.keys())
+locations = st.session_state.get('locations', [])
 if not locations:
     st.sidebar.warning("請在 `config.json` 的 `STATION_COORDS` 中配置測站資訊。")
     st.stop()
 
-selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_11_transformer_station')
+selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_11_transformer_station', format_func=get_station_name_from_id)
 
 predictable_params_config_map = {
-    col_name: info["display_zh"] for col_name, info in PARAMETER_INFO.items()
+    col_name: info["display_zh"] for col_name, info in st.session_state.parameter_info.items()
     if info.get("type") == "linear" # 只選擇線性參數進行預測
 }
 
 # 預載入數據以動態獲取可用參數
-df_initial_check = load_data_for_page(selected_station, PARAMETER_INFO)
+df_initial_check = load_data(selected_station, st.session_state.parameter_info)
 
 available_predictable_params_display_to_col = {}
 for col_name, display_name in predictable_params_config_map.items():
+    col_name = col_name.lower()
     if col_name in df_initial_check.columns and pd.api.types.is_numeric_dtype(df_initial_check[col_name]):
         if df_initial_check[col_name].count() > 0: # 確保該列有非空數據
             available_predictable_params_display_to_col[display_name] = col_name
@@ -334,7 +155,8 @@ if not available_predictable_params_display_to_col:
 selected_param_display = st.sidebar.selectbox("選擇預測參數:", list(available_predictable_params_display_to_col.keys()), key='pages_11_transformer_param_display')
 selected_param_col = available_predictable_params_display_to_col[selected_param_display]
 
-param_info_original = PARAMETER_INFO.get(selected_param_col, {})
+# Find value by "column_name_in_data"
+param_info_original = next((value for value in st.session_state.parameter_info.values() if value.get("column_name_in_data") == selected_param_col), {})
 selected_param_display_original = param_info_original.get("display_zh", selected_param_col)
 param_unit = param_info_original.get("unit", "")
 
@@ -620,12 +442,7 @@ if st.sidebar.button("🤖 執行 Transformer 預測"):
                 )
                 fig_quality.update_traces(textposition='inside', textinfo='percent+label', marker=dict(line=dict(color='#000000', width=1)))
                 
-                # 應用中文字體 (如果配置了)
-                if CHINESE_FONT_PATH and os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', CHINESE_FONT_PATH)):
-                    font_name = os.path.splitext(os.path.basename(CHINESE_FONT_PATH))[0]
-                    fig_quality.update_layout(showlegend=True, font=dict(family=font_name))
-                else:
-                    fig_quality.update_layout(showlegend=True)
+                fig_quality.update_layout(showlegend=True)
                 
                 st.plotly_chart(fig_quality, use_container_width=True)
             else:
@@ -661,24 +478,13 @@ if st.sidebar.button("🤖 執行 Transformer 預測"):
     fig_loss.add_trace(go.Scatter(y=history.history['loss'], mode='lines', name='訓練損失'))
     if 'val_loss' in history.history: # 如果有驗證集，則顯示驗證損失
         fig_loss.add_trace(go.Scatter(y=history.history['val_loss'], mode='lines', name='驗證損失'))
-    
-    # 應用中文字體 (如果配置了)
-    if CHINESE_FONT_PATH and os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', CHINESE_FONT_PATH)):
-        font_name = os.path.splitext(os.path.basename(CHINESE_FONT_PATH))[0]
-        fig_loss.update_layout(
-            title="訓練與驗證損失",
-            xaxis_title="Epoch",
-            yaxis_title="損失 (MSE)",
-            height=400,
-            font=dict(family=font_name)
-        )
-    else:
-        fig_loss.update_layout(
-            title="訓練與驗證損失",
-            xaxis_title="Epoch",
-            yaxis_title="損失 (MSE)",
-            height=400
-        )
+
+    fig_loss.update_layout(
+        title="訓練與驗證損失",
+        xaxis_title="Epoch",
+        yaxis_title="損失 (MSE)",
+        height=400
+    )
     st.plotly_chart(fig_loss, use_container_width=True)
 
 
@@ -764,24 +570,13 @@ if st.sidebar.button("🤖 執行 Transformer 預測"):
     forecast_unit_display = selected_prediction_freq_display.split(' ')[0]
     
     # 應用中文字體 (如果配置了)
-    if CHINESE_FONT_PATH and os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', CHINESE_FONT_PATH)):
-        font_name = os.path.splitext(os.path.basename(CHINESE_FONT_PATH))[0]
-        fig.update_layout(
-            title=f"{selected_station} - {selected_param_display_original} Transformer 未來 {forecast_period_value} {forecast_unit_display} 預測",
-            xaxis_title="時間",
-            yaxis_title=f"{selected_param_display_original} {param_unit}",
-            hovermode="x unified",
-            height=600,
-            font=dict(family=font_name)
-        )
-    else:
-        fig.update_layout(
-            title=f"{selected_station} - {selected_param_display_original} Transformer 未來 {forecast_period_value} {forecast_unit_display} 預測",
-            xaxis_title="時間",
-            yaxis_title=f"{selected_param_display_original} {param_unit}",
-            hovermode="x unified",
-            height=600
-        )
+    fig.update_layout(
+        title=f"{selected_station} - {selected_param_display_original} Transformer 未來 {forecast_period_value} {forecast_unit_display} 預測",
+        xaxis_title="時間",
+        yaxis_title=f"{selected_param_display_original} {param_unit}",
+        hovermode="x unified",
+        height=600
+    )
     st.plotly_chart(fig, use_container_width=True)
 
     ### 💾 下載預測結果

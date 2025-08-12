@@ -16,7 +16,7 @@ from scipy.stats import pearsonr
 import joblib
 import hashlib
 
-from utils.helpers import initialize_session_state
+from utils.helpers import get_station_name_from_id, initialize_session_state, load_data
 
 pio.templates.default = "plotly_white"
 
@@ -74,10 +74,10 @@ def analyze_data_quality(df, relevant_params):
         report[param_col] = param_metrics
     return report
 
-def assess_risk(value, param_key, config):
+def assess_risk(value, param_key):
     """根據預測值、參數名稱和設定檔，回傳風險等級"""
     # 從 config 中讀取 risk_thresholds 區塊，如果找不到則回傳空字典
-    thresholds = config.get("risk_thresholds", {}).get(param_key)
+    thresholds = st.session_state['risk_thresholds'].get(param_key, {})
     
     # 如果 config 中沒有設定此參數的閾值，則回傳"未知"
     if not thresholds:
@@ -234,162 +234,10 @@ initialize_session_state()
 st.title("🌊 海洋數據 LSTM 模型預測")
 st.markdown("使用長短期記憶 (LSTM) 類神經網絡預測海洋數據的未來趨勢。")
 
-# --- 輔助函數和數據載入 ---
-CONFIG_PATH = 'config.json'
-
-@st.cache_data
-def load_config():
-    """載入配置檔"""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    # 修正路徑尋找方式，使其更通用
-    possible_config_paths = [
-        os.path.join(current_dir, '..', CONFIG_PATH)
-    ]
-
-    for path in possible_config_paths:
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
-                if "STATION_COORDS" in config_data:
-                    new_coords = {}
-                    for station, coords in config_data["STATION_COORDS"].items():
-                        new_coords[station] = {
-                            "latitude": coords.get("lat", coords.get("latitude")),
-                            "longitude": coords.get("lon", coords.get("longitude"))
-                        }
-                    config_data["STATION_COORDS"] = new_coords
-                return config_data
-    st.error(f"錯誤: 配置檔 '{CONFIG_PATH}' 未找到。請確保它存在於應用程式的根目錄。")
-    return {}
-
-config = load_config()
-
-BASE_DATA_PATH_CONFIG = config.get("base_data_path", "資料檔/浮標資料")
-STATION_COORDS = config.get("STATION_COORDS", {})
-PARAMETER_INFO = config.get("PARAMETER_INFO", {})
-DATA_SUBFOLDERS_PRIORITY = config.get("DATA_SUBFOLDERS_PRIORITY", ["qc", "QC", "real time", "real_time", "RealTime", "Real Time", "realtime"])
-CHINESE_FONT_PATH = config.get("CHINESE_FONT_PATH")
-
-locations = list(STATION_COORDS.keys())
-
 predictable_params_config_map = {
-    col_name: info["display_zh"] for col_name, info in PARAMETER_INFO.items()
+    col_name: info["display_zh"] for col_name, info in st.session_state.get('parameter_info', {}).items()
     if info.get("type") == "linear"
 }
-
-@st.cache_data(ttl=3600, show_spinner="正在載入並預處理數據...")
-def load_data(station_name, param_info_map): 
-    # 專案根目錄
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    base_data_path = os.path.join(project_root, BASE_DATA_PATH_CONFIG)
-    
-    possible_date_formats = [
-        '%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S', '%Y/%m/%d %H:%M', '%Y-%m-%d %H:%M',
-        '%Y/%m/%d', '%Y-%m-%d', '%m/%d/%Y %H:%M:%S', '%d-%m-%Y %H:%M:%S',
-        '%m/%d/%Y %H:%M', '%d-%m-%Y %H:%M', '%m/%d/%Y', '%d-%m-%Y',
-        '%Y%m%d%H%M%S', '%Y%m%d'
-    ]
-    possible_time_cols_lower = [
-        'time', 'utc', 'gmt', 'local_time', 'date', 'datetime', 'time_utc',
-        'time (utc)', 'time(utc)', 'time (lst)', '時間', '觀測時間', 'time_c' 
-    ]
-
-    with st.expander(f"查看測站 '{station_name}' 的數據載入及初步處理日誌", expanded=False):
-        st.info(f"嘗試從基本路徑 `{base_data_path}` 載入測站 `{station_name}` 的數據。")
-        station_data_base_path = os.path.join(base_data_path, station_name)
-
-        all_dfs = []
-        found_any_file = False
-
-        expected_param_cols_lower = set()
-        expected_param_display_zh_lower = set()
-        for pk, pi in param_info_map.items():
-            expected_param_cols_lower.add(pk.lower())
-            if "column_name_in_data" in pi:
-                expected_param_cols_lower.add(pi["column_name_in_data"].lower())
-            if "display_zh" in pi:
-                expected_param_display_zh_lower.add(pi["display_zh"].lower())
-
-        for subfolder in DATA_SUBFOLDERS_PRIORITY:
-            folder_path = os.path.join(station_data_base_path, subfolder)
-            if os.path.isdir(folder_path):
-                csv_files = glob(os.path.join(folder_path, '*.csv')) + glob(os.path.join(folder_path, '*.CSV'))
-                if csv_files:
-                    st.info(f"在 `{folder_path}` 中找到 {len(csv_files)} 個 CSV 檔案。")
-                    found_any_file = True
-                    for file_path in sorted(csv_files):
-                        temp_df_part_chosen = None 
-                        for h_row in [1, 0]:
-                            for enc in ['utf-8', 'latin1', 'big5', 'cp950']:
-                                try:
-                                    temp_df_part_candidate = pd.read_csv(file_path, header=h_row, encoding=enc, engine='python', on_bad_lines='skip')
-                                    temp_df_part_processed_cols = temp_df_part_candidate.copy()
-                                    temp_df_part_processed_cols.columns = temp_df_part_processed_cols.columns.str.strip().str.lower()
-                                    actual_time_cols_in_df_lower = [col for col in temp_df_part_processed_cols.columns if col in possible_time_cols_lower]
-                                    any_param_col_found = any(col in temp_df_part_processed_cols.columns for col in expected_param_cols_lower) or any(col in temp_df_part_processed_cols.columns for col in expected_param_display_zh_lower)
-                                    if actual_time_cols_in_df_lower and any_param_col_found:
-                                        temp_df_part_chosen = temp_df_part_processed_cols
-                                        break
-                                except Exception: continue
-                            if temp_df_part_chosen is not None: break
-                        
-                        if temp_df_part_chosen is None: continue
-
-                        time_col = [col for col in temp_df_part_chosen.columns if col in possible_time_cols_lower][0]
-                        found_time_parsed = False
-                        for fmt in possible_date_formats:
-                            try:
-                                parsed_dates = pd.to_datetime(temp_df_part_chosen[time_col], format=fmt, errors='coerce')
-                                if parsed_dates.count() / len(temp_df_part_chosen) > 0.5:
-                                    temp_df_part_chosen['ds'] = parsed_dates
-                                    found_time_parsed = True
-                                    break
-                            except Exception: continue
-                        
-                        if not found_time_parsed:
-                            parsed_dates = pd.to_datetime(temp_df_part_chosen[time_col], errors='coerce', infer_datetime_format=True)
-                            if parsed_dates.count() / len(temp_df_part_chosen) > 0.5:
-                                temp_df_part_chosen['ds'] = parsed_dates
-                                found_time_parsed = True
-
-                        if not found_time_parsed or temp_df_part_chosen['ds'].isnull().all(): continue
-                        
-                        temp_df_part_chosen.set_index('ds', inplace=True)
-                        all_dfs.append(temp_df_part_chosen)
-        
-        if not found_any_file:
-            st.error(f"錯誤：在測站 '{station_name}' 的任何指定子文件夾中都沒有找到有效的數據文件。")
-            return pd.DataFrame()
-
-        if not all_dfs:
-            st.error(f"錯誤：雖然找到了 CSV 檔案，但沒有任何檔案成功載入並解析出有效時間序列數據。")
-            return pd.DataFrame()
-
-        combined_df = pd.concat(all_dfs).sort_index()
-        combined_df = combined_df[~combined_df.index.duplicated(keep='first')]
-        
-        cleaned_df = combined_df.copy()
-        final_cols_to_keep = []
-        for param_key, param_info in param_info_map.items(): 
-            expected_names = [param_key.lower()]
-            if "column_name_in_data" in param_info: expected_names.append(param_info["column_name_in_data"].lower())
-            if "display_zh" in param_info: expected_names.append(param_info["display_zh"].lower())
-            
-            target_col_in_df = next((name for name in expected_names if name in cleaned_df.columns), None)
-            
-            if target_col_in_df:
-                cleaned_df[target_col_in_df] = pd.to_numeric(cleaned_df[target_col_in_df], errors='coerce')
-                if cleaned_df[target_col_in_df].count() / len(cleaned_df) > 0.1: 
-                    final_cols_to_keep.append(target_col_in_df)
-        
-        if not final_cols_to_keep:
-            st.error(f"錯誤：測站 '{station_name}' 在所有篩選條件後，沒有符合條件的數據列用於分析。")
-            return pd.DataFrame() 
-        
-        cleaned_df = cleaned_df[list(set(final_cols_to_keep))]
-        cleaned_df.reset_index(inplace=True) 
-        st.success(f"測站 '{station_name}' 的數據已成功載入並預處理。")
-    return cleaned_df
 
 def create_sequences(data, look_back):
     X, y = [], []
@@ -401,17 +249,19 @@ def create_sequences(data, look_back):
 # --- 側邊欄：LSTM 預測設定控制項 ---
 st.sidebar.header("LSTM 預測設定")
 
+locations = st.session_state.get('locations', [])
+
 if not locations:
     st.sidebar.warning("請在 `config.json` 的 `STATION_COORDS` 中配置測站資訊。")
     st.stop()
 
-selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_10_lstm_station')
-df_initial_check = load_data(selected_station, PARAMETER_INFO)
+selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_10_lstm_station', format_func=get_station_name_from_id)
+df_initial_check = load_data(selected_station, st.session_state.get('parameter_info', {}))
 
 available_predictable_params_display_to_col = {}
 if not df_initial_check.empty:
     for col_name_config, display_name in predictable_params_config_map.items():
-        param_info_for_check = PARAMETER_INFO.get(col_name_config, {})
+        param_info_for_check = st.session_state['parameter_info'].get(col_name_config, {})
         expected_names = [col_name_config.lower()]
         if "column_name_in_data" in param_info_for_check: expected_names.append(param_info_for_check["column_name_in_data"].lower())
         if "display_zh" in param_info_for_check: expected_names.append(param_info_for_check["display_zh"].lower())
@@ -425,10 +275,10 @@ if not available_predictable_params_display_to_col:
     st.sidebar.error("載入數據後，沒有可供預測的有效數值型參數。")
     st.stop()
 
-selected_param_display = st.sidebar.selectbox("選擇預測參數:", list(available_predictable_params_display_to_col.keys()), key='pages_10_lstm_param_display')
+selected_param_display = st.sidebar.selectbox("選擇預測參數:", list(available_predictable_params_display_to_col.keys()), key='pages_10_lstm_param_display', format_func=lambda x: x if x in available_predictable_params_display_to_col else "未知參數")
 selected_param_col = available_predictable_params_display_to_col[selected_param_display]
 
-param_unit = next((info.get("unit", "") for key, info in PARAMETER_INFO.items() if info.get("display_zh") == selected_param_display), "")
+param_unit = next((info.get("unit", "") for key, info in st.session_state.get('parameter_info', {}).items() if key == selected_param_col), "")
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("預測時間設定")
@@ -735,12 +585,13 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
         st.subheader("航行風險評估 (基於預測)")
 
         # <<< 修正順序：第一步，先找出對應的 key >>>
-        param_key_in_config = next((key for key, info in PARAMETER_INFO.items() if info.get("display_zh") == selected_param_display), None)
+        param_key_in_config = next((key for key, info in st.session_state.get('parameter_info', {}).items() 
+                                    if info.get("display_zh") == selected_param_display), None)
         
         # <<< 修正順序：第二步，用這個 key 產生說明文字 >>>
         explanation_text = "此評估基於 `config.json` 中設定的風險閾值。"
         if param_key_in_config:
-            thresholds = config.get("risk_thresholds", {}).get(param_key_in_config)
+            thresholds = st.session_state.get('parameter_info', {}).get(param_key_in_config, {}).get("risk_thresholds", {})
             if thresholds:
                 warning_level = thresholds.get("warning")
                 danger_level = thresholds.get("danger")
@@ -757,7 +608,7 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
         # <<< 修正順序：第三步，用這個 key 執行風險評估 >>>
         if param_key_in_config:
             forecast_df['risk_level'] = forecast_df['yhat'].apply(
-                lambda value: assess_risk(value, param_key_in_config, config)
+                lambda value: assess_risk(value, param_key_in_config)
             )
         else:
             forecast_df['risk_level'] = "未知"

@@ -1,5 +1,5 @@
 {
-  "base_data_path": "資料檔/浮標資料",
+  "base_data_path": "dataset/buoy/",
   "CHINESE_FONT_PATH": "fonts/NotoSansTC-VariableFont_wght.ttf",
   "risk_thresholds": {
     "Wave_Height_Significant": {
@@ -10,17 +10,6 @@
       "warning": 10.0,
       "danger": 17.0
     }
-  },
-  "STATION_COORDS": {
-    "小琉球資料浮標": {"latitude": 22.3131, "longitude": 120.3639},
-    "臺東資料浮標": {"latitude": 22.7242, "longitude": 121.1442},
-    "東吉嶼資料浮標": {"latitude": 23.23666, "longitude": 119.64861},
-    "南灣資料浮標": {"latitude": 21.94527, "longitude": 120.76},
-    "潮境資料浮標": {"latitude": 25.14416, "longitude": 121.80833},
-    "龍洞資料浮標": {"latitude": 25.0969, "longitude": 121.9222},
-    "彌陀資料浮標": {"latitude": 22.7653, "longitude": 120.165},
-    "鵝鑾鼻資料浮標": {"latitude": 21.900278, "longitude": 120.8225},
-    "蘇澳資料浮標": {"latitude": 24.6256, "longitude": 121.8761}
   },
   "PARAMETER_INFO": {
     "Wave_Height_Significant": {

@@ -1,7 +1,4 @@
 import streamlit as st # 確保這是第一個 Streamlit 指令的導入
-import os
-import pandas as pd
-import json
 
 # 從 helpers 匯入所有需要的函式和**已在 helpers 模組載入時初始化的全局配置變數**。
 # 這樣 app.py 就不需要再次讀取 config.json 了。

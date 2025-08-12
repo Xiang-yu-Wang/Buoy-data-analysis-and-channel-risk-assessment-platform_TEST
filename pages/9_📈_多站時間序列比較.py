@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils.helpers import load_year_data, PARAMETER_INFO, initialize_session_state
+from utils.helpers import get_station_name_from_id, load_year_data, PARAMETER_INFO, initialize_session_state
 import io
 import zipfile
 
@@ -46,7 +46,7 @@ with st.sidebar:
     st.checkbox("全選/取消全選所有測站", key='pages_9_select_all_checkbox', on_change=toggle_all_stations,
                         value=(len(st.session_state.get('pages_9_multi_station_select', [])) == len(locations) and bool(locations)))
     
-    selected_stations = st.multiselect("選擇要比較的測站:", options=locations, key='pages_9_multi_station_select')
+    selected_stations = st.multiselect("選擇要比較的測站:", options=locations, key='pages_9_multi_station_select', format_func=get_station_name_from_id)
     
     default_year_index = len(available_years) - 1 if available_years else 0
     selected_year = st.selectbox("選擇年份:", options=available_years, index=default_year_index, key='pages_9_multi_year_select')
@@ -110,7 +110,7 @@ if st.session_state.get('analysis_run', False):
         result_year = results['selected_year']
         result_param_display = results['selected_param_display']
         result_param_col = results['selected_param_col']
-        result_stations = results['selected_stations']
+        result_stations = [get_station_name_from_id(station) for station in results['selected_stations']]
         
         st.subheader(f"分析結果：{result_year}年 - {result_param_display}")
         

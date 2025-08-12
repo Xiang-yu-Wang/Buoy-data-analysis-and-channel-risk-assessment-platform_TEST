@@ -16,6 +16,7 @@ import plotly.express as px
 # 從 helpers 模組導入所有必要的通用函數和全局變數
 # 假設 helpers.py 中有這些函數
 from utils.helpers import (
+    get_station_name_from_id,
     initialize_session_state,
     load_app_config_and_font, 
     load_data_for_prediction_page, 
@@ -68,12 +69,12 @@ def build_gru_model(input_shape, gru_units, dense_units, num_gru_layers, dropout
 # --- 側邊欄：GRU 預測設定控制項 ---
 st.sidebar.header("GRU 預測設定")
 
-locations = list(STATION_COORDS.keys())
+locations = st.session_state.get('locations', [])
 if not locations:
     st.sidebar.warning("請在 `config.json` 的 `STATION_COORDS` 中配置測站資訊。")
     st.stop()
 
-selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_12_gru_station')
+selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_12_gru_station', format_func=get_station_name_from_id)
 
 predictable_params_config_map = {
     col_name: info["display_zh"] for col_name, info in PARAMETER_INFO.items()
@@ -83,6 +84,7 @@ predictable_params_config_map = {
 # 動態獲取可用參數
 available_predictable_params_display_to_col = {}
 if selected_station:
+    selected_station_name = get_station_name_from_id(selected_station)
     current_year = pd.Timestamp.now().year
     temp_base_path = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', BASE_DATA_PATH_FROM_CONFIG))
     temp_df_for_col_check = None
@@ -95,7 +97,7 @@ if selected_station:
             if col_name in temp_df_for_col_check.columns and pd.api.types.is_numeric_dtype(temp_df_for_col_check[col_name]):
                 available_predictable_params_display_to_col[display_name] = col_name
     else:
-        st.sidebar.warning(f"無法為測站 '{selected_station}' 載入任何歷史數據以確認可用參數。請檢查數據檔案。")
+        st.sidebar.warning(f"無法為測站 '{selected_station_name}' 載入任何歷史數據以確認可用參數。請檢查數據檔案。")
 
 if not available_predictable_params_display_to_col:
     st.sidebar.error("沒有可供預測的有效數值型參數。")
@@ -210,10 +212,10 @@ if st.sidebar.button("📈 執行 GRU 預測"):
         df_raw = load_data_for_prediction_page(selected_station, selected_param_col, train_start_date, train_end_date)
     
     if df_raw.empty:
-        st.error(f"無法為測站 '{selected_station}' 在指定時間範圍內載入參數 '{selected_param_display_original}' 的數據。")
+        st.error(f"無法為測站 '{selected_station_name}' 在指定時間範圍內載入參數 '{selected_param_display_original}' 的數據。")
         st.stop()
     
-    st.info(f"正在對測站 **{selected_station}** 的參數 **{selected_param_display_original}** 執行 GRU 預測...")
+    st.info(f"正在對測站 **{selected_station_name}** 的參數 **{selected_param_display_original}** 執行 GRU 預測...")
 
     # --- 數據預處理 ---
     df_processed = df_raw.copy().sort_values('ds').drop_duplicates(subset=['ds'], keep='first')
@@ -328,7 +330,7 @@ if st.sidebar.button("📈 執行 GRU 預測"):
     fig.add_trace(go.Scatter(x=full_plot_df['ds'], y=full_plot_df['yhat_train'], name='訓練集預測', line=dict(color='green', dash='dot')))
     fig.add_trace(go.Scatter(x=full_plot_df['ds'], y=full_plot_df['yhat_test'], name='測試集預測', line=dict(color='orange', dash='dot')))
     fig.add_trace(go.Scatter(x=forecast_df['ds'], y=forecast_df['yhat'], name='未來預測', line=dict(color='red', dash='dash')))
-    fig.update_layout(title=f"{selected_station} - {selected_param_display_original} GRU 預測", xaxis_title="時間", yaxis_title=f"{selected_param_display_original} {param_unit}", height=600, font=dict(family=CHINESE_FONT_NAME))
+    fig.update_layout(title=f"{selected_station_name} - {selected_param_display_original} GRU 預測", xaxis_title="時間", yaxis_title=f"{selected_param_display_original} {param_unit}", height=600, font=dict(family=CHINESE_FONT_NAME))
     st.plotly_chart(fig, use_container_width=True)
 
     # --- 修改：擴充下載功能 ---
@@ -344,7 +346,7 @@ if st.sidebar.button("📈 執行 GRU 預測"):
     with col3:
         report_content = f"""
 # GRU 時間序列預測報告
-## 測站: {selected_station} | 預測參數: {selected_param_display_original} ({param_unit})
+## 測站: {selected_station_name} | 預測參數: {selected_param_display_original} ({param_unit})
 ---
 ## 1. 數據與預測設定
 - 數據區間: {train_start_date.strftime('%Y-%m-%d')} 到 {train_end_date.strftime('%Y-%m-%d')}
@@ -377,4 +379,4 @@ if st.sidebar.button("📈 執行 GRU 預測"):
 ---
 報告生成時間: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
-        st.download_button("下載完整報告 (TXT)", report_content.encode('utf-8'), f"{selected_station}_{selected_param_col}_GRU_report.txt", "text/plain", use_container_width=True, help="下載包含所有設定與結果的文本報告")
+        st.download_button("下載完整報告 (TXT)", report_content.encode('utf-8'), f"{selected_station_name}_{selected_param_col}_GRU_report.txt", "text/plain", use_container_width=True, help="下載包含所有設定與結果的文本報告")

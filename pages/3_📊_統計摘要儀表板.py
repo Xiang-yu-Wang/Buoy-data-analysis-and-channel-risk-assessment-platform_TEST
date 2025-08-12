@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils.helpers import initialize_session_state, load_year_data, convert_df_to_csv, PARAMETER_INFO, analyze_data_quality
+from utils.helpers import get_station_name_from_id, initialize_session_state, load_year_data, convert_df_to_csv, PARAMETER_INFO, analyze_data_quality
 import io
 import zipfile
 
@@ -26,7 +26,7 @@ if not all_available_years:
 # --- 選擇器區塊 ---
 col1, col2 = st.columns(2)
 with col1:
-    station_selected = st.selectbox("選擇測站", locations, key='pages_3_db_station_form')
+    station_selected = st.selectbox("選擇測站", locations, key='pages_3_db_station_form', format_func=get_station_name_from_id)
 
 @st.cache_data
 def get_station_specific_years(station, years_to_check, data_path):

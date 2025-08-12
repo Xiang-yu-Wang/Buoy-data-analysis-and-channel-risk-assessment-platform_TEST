@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from utils.helpers import load_year_data, prepare_windrose_data, convert_df_to_csv, PARAMETER_INFO, load_single_file, initialize_session_state
+from utils.helpers import get_station_name_from_id, load_year_data, prepare_windrose_data, convert_df_to_csv, PARAMETER_INFO, load_single_file, initialize_session_state
 import io
 import zipfile
 import os
@@ -29,27 +29,11 @@ def cached_prepare_windrose_data(df):
     """快取版本的 prepare_windrose_data"""
     return prepare_windrose_data(df)
 
-def find_station_data_path(base_path, station_name):
-    """尋找指定測站的數據源資料夾路徑 (qc 或 realtime)"""
-    location_path = os.path.join(base_path, station_name)
-    qc_folders = ['qc', 'QC']
-    realtime_folders = ['real time', 'real_time', 'RealTime', 'Real Time', 'realtime']
-    for folder in qc_folders:
-        potential_path = os.path.join(location_path, folder)
-        if os.path.isdir(potential_path):
-            return potential_path
-    for folder in realtime_folders:
-        potential_path = os.path.join(location_path, folder)
-        if os.path.isdir(potential_path):
-            return potential_path
-    if os.path.isdir(location_path) and any(f.endswith('.csv') for f in os.listdir(location_path)):
-        return location_path
-    return None
-
+#TODO: unify helper
 @st.cache_data(ttl=3600)
 def get_available_years_for_station(base_path, station):
     """掃描特定測站的資料目錄，找出所有包含數據的年份。"""
-    data_path = find_station_data_path(base_path, station)
+    data_path = os.path.join(base_path, station)
     if not data_path:
         return []
     years = set()
@@ -66,7 +50,7 @@ def get_available_years_for_station(base_path, station):
 @st.cache_data(ttl=3600)
 def get_available_months_for_year(base_path, station, year):
     """對於給定的測站和年份，找出所有存在數據的月份。"""
-    data_path = find_station_data_path(base_path, station)
+    data_path = os.path.join(base_path, station)
     if not data_path:
         return []
     months = set()
@@ -113,7 +97,8 @@ station = st.sidebar.selectbox(
     "選擇測站:",
     options=locations,
     key='pages_6_wr_station',
-    on_change=clear_analysis_results
+    on_change=clear_analysis_results,
+    format_func=get_station_name_from_id
 )
 
 station_specific_years = get_available_years_for_station(base_data_path, station)
@@ -165,7 +150,7 @@ if analysis_mode == "單期分析":
         if start_year > end_year or (start_year == end_year and start_month > end_month):
             st.error("錯誤：開始日期不能晚於結束日期。")
         else:
-            with st.spinner(f"正在為 {station} 載入 {start_year} 年至 {end_year} 年的資料..."):
+            with st.spinner(f"正在為 {get_station_name_from_id(station)} 載入 {start_year} 年至 {end_year} 年的資料..."):
                 all_dfs = [cached_load_year_data(base_data_path, station, year) for year in range(start_year, end_year + 1)]
                 all_dfs = [df for df in all_dfs if df is not None]
                 if not all_dfs:
@@ -183,11 +168,11 @@ if analysis_mode == "單期分析":
             else:
                 windrose_df = cached_prepare_windrose_data(data_to_plot)
                 if windrose_df is None:
-                     st.warning(f"在指定區間內，{station} 雖然有資料，但缺乏有效的風速或風向數據。")
+                     st.warning(f"在指定區間內，{get_station_name_from_id(station)} 雖然有資料，但缺乏有效的風速或風向數據。")
                      st.session_state.analysis_results = None
                 else:
                     st.session_state.analysis_results = {
-                        "station": station,
+                        "station": get_station_name_from_id(station),
                         "start_year": start_year,
                         "start_month": start_month,
                         "end_year": end_year,

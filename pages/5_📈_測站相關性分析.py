@@ -8,7 +8,7 @@ import zipfile
 from scipy import signal
 from scipy.stats import mstats, linregress
 
-from utils.helpers import initialize_session_state
+from utils.helpers import get_station_name_from_id, initialize_session_state
 
 # 為了讓此腳本能獨立運行，我們模擬輔助函式的功能
 # 在您的專案中，請確保 from utils.helpers import ... 是有效的
@@ -480,8 +480,9 @@ def run_single_year_analysis(locations, available_years, base_data_path):
     with st.container(border=True):
         st.subheader("⚙️ 分析設定")
         col1, col2, col3 = st.columns(3)
-        station1 = col1.selectbox('選擇測站 A:', options=locations, key='s1_single')
-        station2 = col2.selectbox('選擇測站 B:', options=locations, key='s2_single', index=min(1, len(locations)-1))
+        station1 = col1.selectbox('選擇測站 A:', options=locations, key='s1_single', format_func=get_station_name_from_id)
+        station2 = col2.selectbox('選擇測站 B:', options=locations, key='s2_single', index=min(1, len(locations)-1), format_func=get_station_name_from_id)
+        station1_name, station2_name = get_station_name_from_id(station1), get_station_name_from_id(station2)
 
         # <<< 修改重點 1: 即時檢查測站選擇 >>>
         # 在選擇測站後立即檢查是否相同，並提供即時反饋，而非等到按下按鈕後。
@@ -491,12 +492,12 @@ def run_single_year_analysis(locations, available_years, base_data_path):
             st.selectbox('選擇參數:', ["---"], disabled=True, key='p_single_disabled_same')
             can_analyze = False
         else:
-            with st.spinner(f"正在查詢 {station1} 與 {station2} 的共同可用年份..."):
+            with st.spinner(f"正在查詢 {station1_name} 與 {station2_name} 的共同可用年份..."):
                 common_years = get_common_available_years(base_data_path, station1, station2, available_years)
 
             if not common_years:
                 col3.selectbox('選擇年份:', ["無共同年份資料"], disabled=True, key='y_single_disabled_no_data')
-                st.warning(f"⚠️ **{station1}** 與 **{station2}** 沒有共同的資料年份，請重新選擇測站。")
+                st.warning(f"⚠️ **{station1_name}** 與 **{station2_name}** 沒有共同的資料年份，請重新選擇測站。")
                 st.selectbox('選擇參數:', ["---"], disabled=True, key='p_single_disabled_no_data')
                 can_analyze = False
             else:
@@ -516,7 +517,7 @@ def run_single_year_analysis(locations, available_years, base_data_path):
                 # 只有在所有條件都滿足時，才設定分析參數並啟用按鈕
                 if param_col:
                     analysis_params = {
-                        "station1": station1, "station2": station2, "year": year, 
+                        "station1": station1_name, "station2": station2_name, "year": year, 
                         "param_col": param_col, "analysis_type": analysis_type
                     }
                     can_analyze = True

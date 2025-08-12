@@ -9,7 +9,7 @@ from glob import glob
 import json
 import plotly.express as px
 from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
-from utils.helpers import initialize_session_state
+from utils.helpers import get_station_name_from_id, initialize_session_state, load_data
 from scipy.stats import pearsonr 
 import plotly.io as pio 
 import logging 
@@ -63,215 +63,13 @@ initialize_session_state()
 st.title("🔮 海洋數據時間序列預測 (Beta)")
 st.markdown("使用 Prophet、SARIMA 或 ETS 模型預測海洋數據的未來趨勢。")
 
-# --- 輔助函數和數據載入 ---
-CONFIG_PATH = 'config.json'
-
-@st.cache_data
-def load_config():
-    """載入配置檔"""
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    possible_config_paths = [
-        os.path.join(current_dir, CONFIG_PATH),
-        os.path.join(current_dir, '..', CONFIG_PATH)
-    ]
-
-    for path in possible_config_paths:
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
-                if "STATION_COORDS" in config_data:
-                    new_coords = {}
-                    for station, coords in config_data["STATION_COORDS"].items():
-                        new_coords[station] = {
-                            "latitude": coords.get("lat", coords.get("latitude")),
-                            "longitude": coords.get("lon", coords.get("longitude"))
-                        }
-                    config_data["STATION_COORDS"] = new_coords
-                
-                # --- 新增/修改：載入字體配置 ---
-                # 優先使用 CHINESE_FONT_PREFERRED_NAME
-                config_data["CHINESE_FONT_FAMILY"] = ["Noto Sans TC"]
-                if "CHINESE_FONT_PREFERRED_NAME" in config_data and config_data["CHINESE_FONT_PREFERRED_NAME"]:
-                    config_data["CHINESE_FONT_FAMILY"].append(config_data["CHINESE_FONT_PREFERRED_NAME"])
-                
-                # 添加備用字體列表
-                if "CHINESE_FONT_FALLBACKS" in config_data and isinstance(config_data["CHINESE_FONT_FALLBACKS"], list):
-                    config_data["CHINESE_FONT_FAMILY"].extend(config_data["CHINESE_FONT_FALLBACKS"])
-                
-                # 如果沒有配置任何字體，給一個合理的預設值
-                if not config_data["CHINESE_FONT_FAMILY"]:
-                    config_data["CHINESE_FONT_FAMILY"] = ["Arial", "sans-serif"] 
-                    st.warning("config.json 中未設定 'CHINESE_FONT_PREFERRED_NAME' 或 'CHINESE_FONT_FALLBACKS'，將使用預設字體。")
-                # --- 字體載入結束 ---
-
-                return config_data
-    st.error(f"錯誤: 配置檔 '{CONFIG_PATH}' 未找到。請確保它存在於應用程式的根目錄或 Streamlit 頁面所在目錄。")
-    return {}
-
-config = load_config()
-
-BASE_DATA_PATH_CONFIG = config.get("BASE_DATA_PATH", "資料檔/浮標資料")
-BASE_DATA_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', BASE_DATA_PATH_CONFIG))
-
-STATION_COORDS = config.get("STATION_COORDS", {})
-PARAMETER_INFO = config.get("PARAMETER_INFO", {})
-DATA_SUBFOLDERS_PRIORITY = config.get("DATA_SUBFOLDERS_PRIORITY", ["qc", "QC", "real time", "real_time", "RealTime", "Real Time", "realtime"])
-CHINESE_FONT_FAMILY = config.get("CHINESE_FONT_FAMILY", []) # 從 config 載入處理後的字體列表
-
-locations = list(STATION_COORDS.keys())
+locations = st.session_state.get('locations', [])
 
 predictable_params_config_map = {
-    col_name: info["display_zh"] for col_name, info in PARAMETER_INFO.items()
+    col_name: info["display_zh"] for col_name, info in st.session_state.get('parameter_info', {}).items()
     if info.get("type") == "linear"
 }
 
-@st.cache_data(ttl=3600, show_spinner="正在載入並預處理數據...")
-def load_data(station_name, param_info_map):
-    # 使用 st.expander 將所有的載入訊息包裹起來
-    with st.expander(f"查看測站 '{station_name}' 的數據載入日誌"):
-        st.info(f"嘗試從基本路徑 `{BASE_DATA_PATH}` 載入測站 `{station_name}` 的數據。")
-        station_data_base_path = os.path.join(BASE_DATA_PATH, station_name)
-
-        all_dfs = []
-        found_any_file = False
-
-        csv_header_row = 0
-        if station_name in list(STATION_COORDS.keys()):
-            csv_header_row = 1
-            st.info(f"檢測到測站 '{station_name}'，將使用 CSV 文件的 **第二行** 作為列名 (header=1)。")
-        else:
-            st.info(f"未明確指定測站 '{station_name}' 的 CSV 檔頭行，將預設使用 **第一行** 作為列名 (header=0)。")
-
-        for subfolder in DATA_SUBFOLDERS_PRIORITY:
-            folder_path = os.path.join(station_data_base_path, subfolder)
-            if os.path.isdir(folder_path):
-                csv_files = glob(os.path.join(folder_path, '*.csv')) + glob(os.path.join(folder_path, '*.CSV'))
-                if csv_files:
-                    st.info(f"在 `{folder_path}` 中找到 {len(csv_files)} 個 CSV 檔案。")
-                    found_any_file = True
-                    for file_path in sorted(csv_files):
-                        try:
-                            encodings = ['utf-8', 'latin1', 'big5', 'cp950']
-                            df_part = None
-                            for enc in encodings:
-                                try:
-                                    df_part = pd.read_csv(file_path, header=csv_header_row, encoding=enc, engine='python')
-                                    break
-                                except UnicodeDecodeError:
-                                    continue
-                            if df_part is None:
-                                st.warning(f"文件 '{file_path}' 無法使用常見編碼解析。跳過此文件。")
-                                continue
-
-                            time_col = None
-                            possible_time_cols = ['Time', 'time', 'UTC', 'GMT', 'Local_Time', 'Date', 'DateTime', 'TIME_UTC', 'Time (UTC)', 'time(UTC)', 'Time (LST)']
-                            
-                            # 清理列名，確保匹配時不會因為空格或大小寫問題錯過
-                            df_part.columns = df_part.columns.str.strip().str.lower()
-                            actual_time_cols_in_df = [col for col in df_part.columns if col in [pc.lower() for pc in possible_time_cols]]
-                            
-                            # --- 修正點 1: 更魯棒的日期時間解析 ---
-                            # 定義多種可能的日期時間格式
-                            possible_date_formats = [
-                                '%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S', 
-                                '%Y/%m/%d %H:%M', '%Y-%m-%d %H:%M',      
-                                '%Y/%m/%d', '%Y-%m-%d',                  
-                                '%m/%d/%Y %H:%M:%S', '%d-%m-%Y %H:%M:%S', 
-                                '%m/%d/%Y %H:%M', '%d-%m-%Y %H:%M',      
-                                '%m/%d/%Y', '%d-%m-%Y',                  
-                                '%Y%m%d%H%M%S', 
-                                '%Y%m%d'      
-                            ]
-                            
-                            found_time_col_and_parsed = False
-                            for col in actual_time_cols_in_df:
-                                # 嘗試使用明確格式解析
-                                for fmt in possible_date_formats:
-                                    parsed_dates = pd.to_datetime(df_part[col], format=fmt, errors='coerce')
-                                    valid_time_ratio = parsed_dates.count() / len(df_part) if len(df_part) > 0 else 0
-                                    if valid_time_ratio > 0.5: # 如果超過一半的日期成功解析
-                                        time_col = col
-                                        df_part['ds'] = parsed_dates
-                                        found_time_col_and_parsed = True
-                                        st.info(f"文件 '{file_path}' 的時間列 '{col}' 已使用格式 '{fmt}' 成功解析。")
-                                        break 
-                                if found_time_col_and_parsed:
-                                    break 
-
-                            if not found_time_col_and_parsed:
-                                # 如果所有明確格式都失敗，最後嘗試自動推斷（可能產生 UserWarning）
-                                for col in actual_time_cols_in_df:
-                                    parsed_dates = pd.to_datetime(df_part[col], errors='coerce', infer_datetime_format=True)
-                                    valid_time_ratio = parsed_dates.count() / len(df_part) if len(df_part) > 0 else 0
-                                    if valid_time_ratio > 0.5:
-                                        time_col = col
-                                        df_part['ds'] = parsed_dates
-                                        found_time_col_and_parsed = True
-                                        st.warning(f"文件 '{file_path}' 的時間列 '{col}' 無法從預設格式中解析，已嘗試自動推斷格式 (可能較慢)。")
-                                        break
-                                    
-                            if not found_time_col_and_parsed or df_part['ds'].isnull().all():
-                                st.warning(f"文件 '{file_path}' 中未找到有效的時間列或時間格式無法解析。跳過此文件。")
-                                continue
-                            
-                            df_part.set_index('ds', inplace=True)
-                            all_dfs.append(df_part)
-                        except Exception as e:
-                            st.warning(f"載入或處理文件 '{file_path}' 時發生錯誤：{e}。跳過此文件。")
-                            continue
-                else:
-                    st.info(f"在 `{folder_path}` 中沒有找到 CSV 檔案。")
-
-        if not found_any_file:
-            st.error(f"錯誤：在測站 '{station_name}' 的任何指定子文件夾中都沒有找到有效的數據文件。")
-            st.info(f"預期的測站數據根路徑: `{station_data_base_path}`")
-            st.info(f"嘗試尋找的子文件夾: `{', '.join(DATA_SUBFOLDERS_PRIORITY)}`")
-            return pd.DataFrame()
-
-        if not all_dfs:
-            st.error(f"錯誤：雖然找到了 CSV 檔案，但沒有任何檔案成功載入並解析出有效時間序列數據。")
-            return pd.DataFrame()
-
-    # 合併所有 DataFrame，並移除重複索引
-    combined_df = pd.concat(all_dfs).sort_index()
-    combined_df = combined_df[~combined_df.index.duplicated(keep='first')]
-
-    cleaned_df = combined_df.copy() 
-
-    final_cols_to_keep = []
-    # 遍歷參數資訊映射，找出要保留的列
-    for param_key, param_info in param_info_map.items():
-        param_col_in_data = param_info.get("column_name_in_data", param_key).lower()
-        if param_col_in_data in cleaned_df.columns:
-            # 嘗試轉換為數字，處理非數值數據
-            cleaned_df[param_col_in_data] = pd.to_numeric(cleaned_df[param_col_in_data], errors='coerce')
-            valid_ratio = cleaned_df[param_col_in_data].count() / len(cleaned_df) if len(cleaned_df) > 0 else 0
-
-            # 根據參數類型和有效數據比例決定是否保留
-            if param_info.get("type") in ["linear", "circular"] and valid_ratio > 0.1: # 至少10%的有效數據
-                final_cols_to_keep.append(param_col_in_data)
-            else:
-                st.info(f"列 '{param_key}' (顯示名稱: {param_info.get('display_zh', 'N/A')}) 因數據類型不符、空值過多 ({valid_ratio*100:.2f}%) 或未配置為線性/圓形類型而被排除在主要分析之外。")
-        else:
-            st.info(f"配置文件中的參數 '{param_info.get('display_zh', param_key)}' (原始列名: '{param_key}') 未在數據文件中找到。")
-    
-    # 檢查 final_cols_to_keep 是否有內容
-    if not final_cols_to_keep:
-        st.warning(f"警告：測站 '{station_name}' 沒有符合條件的數據列用於分析。請檢查 config.json 中參數配置和數據內容。")
-        return pd.DataFrame()
-
-    # 僅選擇 final_cols_to_keep 中的欄位，索引 'ds' 會自動被保留
-    cleaned_df = cleaned_df[final_cols_to_keep]
-
-    # 確保最終 DataFrame 不是空的
-    if cleaned_df.empty:
-        st.error(f"錯誤：選擇參數後，數據為空。請檢查原始文件內容和列名是否與 config.json 匹配。")
-        return pd.DataFrame()
-    
-    # 最終返回前重置索引，方便後續處理（如果你需要 'ds' 再次作為一個常規列）
-    cleaned_df.reset_index(inplace=True) 
-
-    return cleaned_df
 
 # --- 輔助函數：計算布林帶 ---
 def calculate_bollinger_bands(df, window=20, num_std_dev=2):
@@ -454,14 +252,14 @@ if not locations:
     st.sidebar.warning("請在 `config.json` 的 `STATION_COORDS` 中配置測站資訊。")
     st.stop()
 
-selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_8_station')
+selected_station = st.sidebar.selectbox("選擇測站:", locations, key='pages_8_station', format_func=get_station_name_from_id)
 
 # 預載入數據以動態獲取可用參數
-df_initial_check = load_data(selected_station, PARAMETER_INFO)
+df_initial_check = load_data(selected_station, st.session_state.get('parameter_info', {}))
 
 available_predictable_params_display_to_col = {}
 for col_name, display_name in predictable_params_config_map.items():
-    param_col_in_data = PARAMETER_INFO.get(col_name, {}).get("column_name_in_data", col_name).lower()
+    param_col_in_data = st.session_state.get('parameter_info', {}).get(col_name, {}).get("column_name_in_data", col_name).lower()
     
     if param_col_in_data in df_initial_check.columns and pd.api.types.is_numeric_dtype(df_initial_check[param_col_in_data]):
         if df_initial_check[param_col_in_data].count() > 0: 
@@ -475,7 +273,7 @@ selected_param_display = st.sidebar.selectbox("選擇預測參數:", list(availa
 selected_param_col = available_predictable_params_display_to_col[selected_param_display]
 
 param_info_original = {}
-for key, val in PARAMETER_INFO.items():
+for key, val in st.session_state.get('parameter_info', {}).items():
     if val.get("column_name_in_data", key).lower() == selected_param_col:
         param_info_original = val
         break
@@ -798,17 +596,19 @@ if st.sidebar.button("🔮 執行預測"):
             st.stop()
 
 
-    df_loaded = load_data(selected_station, PARAMETER_INFO) # 載入原始數據
+    df_loaded = load_data(selected_station, st.session_state.get('parameter_info', {})) # 載入原始數據
+
+    selected_station_name = get_station_name_from_id(selected_station)
 
     if df_loaded.empty or selected_param_col not in df_loaded.columns:
         if df_loaded.empty:
-            st.error(f"所選測站 '{selected_station}' 沒有成功載入任何數據。")
+            st.error(f"所選測站 '{selected_station_name}' 沒有成功載入任何數據。")
         else:
-            st.error(f"所選測站 '{selected_station}' 的數據文件缺少參數 '{selected_param_display_original}' (原始列名: '{selected_param_col}')。")
+            st.error(f"所選測站 '{selected_station_name}' 的數據文件缺少參數 '{selected_param_display_original}' (原始列名: '{selected_param_col}')。")
             st.info(f"數據中可用的列: {df_loaded.columns.tolist()}")
         st.stop()
 
-    st.info(f"正在對測站 **{selected_station}** 的參數 **{selected_param_display_original}** 執行 {selected_model} 預測...")
+    st.info(f"正在對測站 **{selected_station_name}** 的參數 **{selected_param_display_original}** 執行 {selected_model} 預測...")
 
     # --- 數據預處理 (開始) ---
     df_processed = df_loaded[['ds', selected_param_col]].copy()
@@ -968,13 +768,7 @@ if st.sidebar.button("🔮 執行預測"):
                 )
                 fig_quality.update_traces(textposition='inside', textinfo='percent+label', marker=dict(line=dict(color='#000000', width=1)))
                 
-                # Apply font if available
-                if CHINESE_FONT_FAMILY: 
-                    # 將字體列表轉換為 Plotly 期望的逗號分隔字串
-                    font_family_string = ", ".join(CHINESE_FONT_FAMILY) 
-                    fig_quality.update_layout(showlegend=True, font=dict(family=font_family_string))
-                else:
-                    fig_quality.update_layout(showlegend=True)
+                fig_quality.update_layout(showlegend=True)
                 
                 st.plotly_chart(fig_quality, use_container_width=True)
             else:
@@ -1415,27 +1209,14 @@ if st.sidebar.button("🔮 執行預測"):
 
         forecast_unit_display = selected_prediction_freq_display.split(' ')[0]
         
-        if CHINESE_FONT_FAMILY:
-            # 將字體列表轉換為 Plotly 期望的逗號分隔字串
-            font_family_string = ", ".join(CHINESE_FONT_FAMILY) 
-            fig.update_layout(
-                title=f"{selected_station} - {selected_param_display_original} 未來 {forecast_period_value} {forecast_unit_display} 預測 ({selected_model})",
-                xaxis_title="時間",
-                yaxis_title=f"{selected_param_display_original} {param_unit}",
-                hovermode="x unified",
-                height=600,
-                font=dict(family=font_family_string), # 使用轉換後的字串
-                xaxis=dict(rangeslider_visible=True) 
-            )
-        else: 
-            fig.update_layout(
-                title=f"{selected_station} - {selected_param_display_original} 未來 {forecast_period_value} {forecast_unit_display} 預測 ({selected_model})",
-                xaxis_title="時間",
-                yaxis_title=f"{selected_param_display_original} {param_unit}",
-                hovermode="x unified",
-                height=600,
-                xaxis=dict(rangeslider_visible=True) 
-            )
+        fig.update_layout(
+            title=f"{selected_station_name} - {selected_param_display_original} 未來 {forecast_period_value} {forecast_unit_display} 預測 ({selected_model})",
+            xaxis_title="時間",
+            yaxis_title=f"{selected_param_display_original} {param_unit}",
+            hovermode="x unified",
+            height=600,
+            xaxis=dict(rangeslider_visible=True) 
+        )
 
         st.plotly_chart(fig, use_container_width=True)
 
@@ -1450,7 +1231,7 @@ if st.sidebar.button("🔮 執行預測"):
             st.download_button(
                 label="下載互動式 HTML 圖表",
                 data=html_export_string.encode('utf-8'),
-                file_name=f"{selected_station}_{selected_param_col}_{selected_model}_forecast_chart.html",
+                file_name=f"{selected_station_name}_{selected_param_col}_{selected_model}_forecast_chart.html",
                 mime="text/html",
                 help="下載可獨立打開並互動的圖表 HTML 文件"
             )
@@ -1466,16 +1247,16 @@ if st.sidebar.button("🔮 執行預測"):
         st.download_button(
             label="下載預測 CSV 文件",
             data=csv_data,
-            file_name=f"{selected_station}_{selected_param_col}_{selected_model}_forecast.csv",
+            file_name=f"{selected_station_name}_{selected_param_col}_{selected_model}_forecast.csv",
             mime="text/csv",
         )
 
         # --- 生成並下載預測報告 ---
         report_content = f"""
-# 時間序列預測報告 - {selected_station} - {selected_param_display_original}
+# 時間序列預測報告 - {selected_station_name} - {selected_param_display_original}
 
 ## 1. 預測概覽
-- **測站**: {selected_station}
+- **測站**: {selected_station_name}
 - **預測參數**: {selected_param_display_original} ({param_unit})
 - **預測模型**: {selected_model}
 - **預測未來時長**: {forecast_period_value} {forecast_unit_display}
@@ -1537,7 +1318,7 @@ if st.sidebar.button("🔮 執行預測"):
         st.download_button(
             label="下載預測報告 (TXT)",
             data=report_content.encode('utf-8'),
-            file_name=f"{selected_station}_{selected_param_col}_{selected_model}_forecast_report.txt",
+            file_name=f"{selected_station_name}_{selected_param_col}_{selected_model}_forecast_report.txt",
             mime="text/plain",
             help="下載包含預測設定、數據品質、模型參數和性能指標的文本報告"
         )

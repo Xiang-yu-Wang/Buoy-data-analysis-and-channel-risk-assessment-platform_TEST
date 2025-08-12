@@ -1,3 +1,4 @@
+from glob import glob
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,18 +13,18 @@ import matplotlib.font_manager as fm
 
 # --- 全局配置變數 (在模組載入時初始化) ---
 PARAMETER_INFO = {}
+RISK_THRESHOLDS = {}
 DATA_SUBFOLDERS_PRIORITY = []
-BASE_DATA_PATH_FROM_CONFIG = "資料檔/浮標資料/"
+BASE_DATA_PATH_FROM_CONFIG = "/dataset/buoy"
 CHINESE_FONT_NAME = None # 用於 Streamlit Plotly 圖表的中文字體名稱
 CHINESE_FONT_PATH_FULL = None # 用於 Matplotlib 的中文字體完整路徑
-STATION_COORDS = {} # 新增：將 STATION_COORDS 設為全局變數
 
 # --- 載入配置檔 ---
 def load_app_config_and_font():
     """載入應用程式的配置檔，並設定中文字體資訊。
     此函數會更新模組層級的全局變數。
     """
-    global PARAMETER_INFO, DATA_SUBFOLDERS_PRIORITY, BASE_DATA_PATH_FROM_CONFIG
+    global PARAMETER_INFO, DATA_SUBFOLDERS_PRIORITY, BASE_DATA_PATH_FROM_CONFIG, RISK_THRESHOLDS
     global CHINESE_FONT_NAME, CHINESE_FONT_PATH_FULL, STATION_COORDS 
 
     CONFIG_FILE_NAME = 'config.json'
@@ -49,7 +50,8 @@ def load_app_config_and_font():
         
         PARAMETER_INFO = config.get("PARAMETER_INFO", {})
         DATA_SUBFOLDERS_PRIORITY = config.get("DATA_SUBFOLDERS_PRIORITY", ["qc", "QC", "real time", "real_time", "RealTime", "Real Time", "realtime"])
-        BASE_DATA_PATH_FROM_CONFIG = config.get("base_data_path", "資料檔/浮標資料/")
+        BASE_DATA_PATH_FROM_CONFIG = config.get("base_data_path", "/dataset/buoy")
+        RISK_THRESHOLDS = config.get("RISK_THRESHOLDS", {})
 
         font_path_relative = config.get("CHINESE_FONT_PATH")
         if font_path_relative:
@@ -70,11 +72,10 @@ def load_app_config_and_font():
         raise
 
 try:
-    _app_config = load_app_config_and_font()
+    load_app_config_and_font()
 except Exception as e:
     print(f"應用程式啟動時配置初始化失敗: {e}. 請檢查您的 'config.json' 檔案。")
     PARAMETER_INFO, DATA_SUBFOLDERS_PRIORITY, STATION_COORDS = {}, [], {}
-    BASE_DATA_PATH_FROM_CONFIG = "資料檔/浮標資料/"
     CHINESE_FONT_NAME, CHINESE_FONT_PATH_FULL = None, None
 
 # --- 輔助函數 ---
@@ -162,31 +163,16 @@ def load_single_file(file_path):
 def load_year_data(base_data_path, station, year):
     """載入並合併指定測站和年份的所有月份資料。"""
     monthly_dfs = []
-    location_path = os.path.join(base_data_path, station)
-    data_source_path = None
-    
-    # 尋找數據來源資料夾
-    search_paths = [os.path.join(location_path, folder) for folder in DATA_SUBFOLDERS_PRIORITY]
-    search_paths.append(location_path)
-    if os.path.exists(location_path):
-        search_paths.extend([os.path.join(location_path, d) for d in os.listdir(location_path) if os.path.isdir(os.path.join(location_path, d))])
-    
-    for path in dict.fromkeys(search_paths): # 使用 dict.fromkeys 去除重複路徑
-        if os.path.isdir(path) and any(re.match(fr'{year}\d{{2}}\.csv', f, re.IGNORECASE) for f in os.listdir(path)):
-            data_source_path = path
-            break
-            
-    if data_source_path is None:
-        return None
+    dataset_path = os.path.join(base_data_path, station)
 
     # 載入該年度所有月份的檔案
     for month in range(1, 13):
-        file_path = os.path.join(data_source_path, f"{year}{month:02d}.csv")
+        file_path = os.path.join(dataset_path, f"{year}{month:02d}.csv")
         if os.path.exists(file_path):
             df_month = load_single_file(file_path)
             if df_month is not None and not df_month.empty:
                 monthly_dfs.append(df_month)
-
+                
     if not monthly_dfs:
         return None
 
@@ -335,7 +321,7 @@ def batch_process_all_data(base_data_path_from_config, locations, years_to_analy
                     lambda df_month: analyze_navigability(df_month, wave_thresh, wind_thresh)
                 ).reset_index(name='可航行時間比例(%)')
                 
-                monthly_results['地點'] = location
+                monthly_results['地點'] = get_station_name_from_id(location)
                 monthly_results['年份'] = year
                 
                 # --- 現在這行可以正常運作，因為 '月份' 欄位存在 ---
@@ -349,6 +335,147 @@ def batch_process_all_data(base_data_path_from_config, locations, years_to_analy
         return pd.DataFrame(), missing_data_sources
         
     return pd.concat(all_results, ignore_index=True), missing_data_sources
+
+@st.cache_data(ttl=3600, show_spinner="正在載入並預處理數據...")
+def load_data(station_id, param_info_map):
+    station_name = get_station_name_from_id(station_id)
+
+    # 使用 st.expander 將所有的載入訊息包裹起來
+    with st.expander(f"查看測站 '{station_name}' 的數據載入日誌"):
+        st.info(f"嘗試從基本路徑 `{st.session_state.base_data_path}` 載入測站 `{station_name}` 的數據。")
+        station_data_path = os.path.join(st.session_state.base_data_path, station_id)
+
+        all_dfs = []
+        found_any_file = False
+
+        csv_files = glob(os.path.join(station_data_path, '*.csv')) + glob(os.path.join(station_data_path, '*.CSV'))
+        if csv_files:
+            st.info(f"在 `{station_data_path}` 中找到 {len(csv_files)} 個 CSV 檔案。")
+            found_any_file = True
+            for file_path in sorted(csv_files):
+                try:
+                    encodings = ['utf-8', 'latin1', 'big5', 'cp950']
+                    df_part = None
+                    for enc in encodings:
+                        try:
+                            df_part = pd.read_csv(file_path, header=1, encoding=enc, engine='python')
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                    if df_part is None:
+                        st.warning(f"文件 '{file_path}' 無法使用常見編碼解析。跳過此文件。")
+                        continue
+
+                    possible_time_cols = ['Time', 'time', 'UTC', 'GMT', 'Local_Time', 'Date', 'DateTime', 'TIME_UTC', 'Time (UTC)', 'time(UTC)', 'Time (LST)']
+                    
+                    # 清理列名，確保匹配時不會因為空格或大小寫問題錯過
+                    df_part.columns = df_part.columns.str.strip().str.lower()
+                    actual_time_cols_in_df = [col for col in df_part.columns if col in [pc.lower() for pc in possible_time_cols]]
+                    
+                    # --- 修正點 1: 更魯棒的日期時間解析 ---
+                    # 定義多種可能的日期時間格式
+                    possible_date_formats = [
+                        '%Y/%m/%d %H:%M:%S', '%Y-%m-%d %H:%M:%S', 
+                        '%Y/%m/%d %H:%M', '%Y-%m-%d %H:%M',      
+                        '%Y/%m/%d', '%Y-%m-%d',                  
+                        '%m/%d/%Y %H:%M:%S', '%d-%m-%Y %H:%M:%S', 
+                        '%m/%d/%Y %H:%M', '%d-%m-%Y %H:%M',      
+                        '%m/%d/%Y', '%d-%m-%Y',                  
+                        '%Y%m%d%H%M%S', 
+                        '%Y%m%d'      
+                    ]
+                    
+                    found_time_col_and_parsed = False
+                    for col in actual_time_cols_in_df:
+                        # 嘗試使用明確格式解析
+                        for fmt in possible_date_formats:
+                            parsed_dates = pd.to_datetime(df_part[col], format=fmt, errors='coerce')
+                            valid_time_ratio = parsed_dates.count() / len(df_part) if len(df_part) > 0 else 0
+                            if valid_time_ratio > 0.5: # 如果超過一半的日期成功解析
+                                df_part['ds'] = parsed_dates
+                                found_time_col_and_parsed = True
+                                st.info(f"文件 '{file_path}' 的時間列 '{col}' 已使用格式 '{fmt}' 成功解析。")
+                                break 
+                        if found_time_col_and_parsed:
+                            break 
+
+                    if not found_time_col_and_parsed:
+                        # 如果所有明確格式都失敗，最後嘗試自動推斷（可能產生 UserWarning）
+                        for col in actual_time_cols_in_df:
+                            parsed_dates = pd.to_datetime(df_part[col], errors='coerce', infer_datetime_format=True)
+                            valid_time_ratio = parsed_dates.count() / len(df_part) if len(df_part) > 0 else 0
+                            if valid_time_ratio > 0.5:
+                                df_part['ds'] = parsed_dates
+                                found_time_col_and_parsed = True
+                                st.warning(f"文件 '{file_path}' 的時間列 '{col}' 無法從預設格式中解析，已嘗試自動推斷格式 (可能較慢)。")
+                                break
+                            
+                    if not found_time_col_and_parsed or df_part['ds'].isnull().all():
+                        st.warning(f"文件 '{file_path}' 中未找到有效的時間列或時間格式無法解析。跳過此文件。")
+                        continue
+                    
+                    df_part.set_index('ds', inplace=True)
+                    all_dfs.append(df_part)
+                except Exception as e:
+                    st.warning(f"載入或處理文件 '{file_path}' 時發生錯誤：{e}。跳過此文件。")
+                    continue
+
+        if not found_any_file:
+            st.error(f"錯誤：在測站 '{station_name}' 的任何指定子文件夾中都沒有找到有效的數據文件。")
+            st.info(f"預期的測站數據根路徑: `{station_data_path}`")
+            return pd.DataFrame()
+
+        if not all_dfs:
+            st.error(f"錯誤：雖然找到了 CSV 檔案，但沒有任何檔案成功載入並解析出有效時間序列數據。")
+            return pd.DataFrame()
+
+    # 合併所有 DataFrame，並移除重複索引
+    combined_df = pd.concat(all_dfs).sort_index()
+    combined_df = combined_df[~combined_df.index.duplicated(keep='first')]
+
+    cleaned_df = combined_df.copy() 
+
+    final_cols_to_keep = []
+    # 遍歷參數資訊映射，找出要保留的列
+    for param_key, param_info in param_info_map.items():
+        param_col_in_data = param_info.get("column_name_in_data", param_key).lower()
+        if param_col_in_data in cleaned_df.columns:
+            # 嘗試轉換為數字，處理非數值數據
+            cleaned_df[param_col_in_data] = pd.to_numeric(cleaned_df[param_col_in_data], errors='coerce')
+            valid_ratio = cleaned_df[param_col_in_data].count() / len(cleaned_df) if len(cleaned_df) > 0 else 0
+
+            # 根據參數類型和有效數據比例決定是否保留
+            if param_info.get("type") in ["linear", "circular"] and valid_ratio > 0.1: # 至少10%的有效數據
+                final_cols_to_keep.append(param_col_in_data)
+            else:
+                st.info(f"列 '{param_key}' (顯示名稱: {param_info.get('display_zh', 'N/A')}) 因數據類型不符、空值過多 ({valid_ratio*100:.2f}%) 或未配置為線性/圓形類型而被排除在主要分析之外。")
+        else:
+            st.info(f"配置文件中的參數 '{param_info.get('display_zh', param_key)}' (原始列名: '{param_key}') 未在數據文件中找到。")
+    
+    # 檢查 final_cols_to_keep 是否有內容
+    if not final_cols_to_keep:
+        st.warning(f"警告：測站 '{station_name}' 沒有符合條件的數據列用於分析。請檢查 config.json 中參數配置和數據內容。")
+        return pd.DataFrame()
+
+    # 僅選擇 final_cols_to_keep 中的欄位，索引 'ds' 會自動被保留
+    cleaned_df = cleaned_df[final_cols_to_keep]
+
+    # 確保最終 DataFrame 不是空的
+    if cleaned_df.empty:
+        st.error(f"錯誤：選擇參數後，數據為空。請檢查原始文件內容和列名是否與 config.json 匹配。")
+        return pd.DataFrame()
+    
+    # 最終返回前重置索引，方便後續處理（如果你需要 'ds' 再次作為一個常規列）
+    cleaned_df.reset_index(inplace=True) 
+
+    return cleaned_df
+
+def get_station_from_id(station_id):
+    station_map = {d['StationID']: d for d in st.session_state['devices']}
+    return station_map.get(station_id, station_id)
+
+def get_station_name_from_id(station_id):
+    return get_station_from_id(station_id).get('Title', station_id)
 
 def analyze_navigability(df, wave_threshold, wind_threshold):
     if df is None or df.empty or 'Wave_Height_Significant' not in df.columns or 'Wind_Speed' not in df.columns: return np.nan
@@ -391,26 +518,17 @@ def initialize_session_state():
         st.session_state.chinese_font_path = CHINESE_FONT_PATH_FULL
     if 'chinese_font_name' not in st.session_state: # 新增：Plotly 需要字體名稱
         st.session_state.chinese_font_name = CHINESE_FONT_NAME
-    if 'station_coords' not in st.session_state:
-        st.session_state.station_coords = STATION_COORDS
+    if 'devices' not in st.session_state:
+        with open(os.path.join(BASE_DATA_PATH_FROM_CONFIG, "devices.json"), 'r', encoding='utf-8') as f:
+            st.session_state.devices = json.load(f)
     if 'parameter_info' not in st.session_state:
         st.session_state.parameter_info = PARAMETER_INFO
     if 'data_subfolders_priority' not in st.session_state:
         st.session_state.data_subfolders_priority = DATA_SUBFOLDERS_PRIORITY
-
     if 'locations' not in st.session_state:
-        # 建構完整的資料路徑 (考慮到 config.json 中的可能是相對路徑)
-        full_base_data_path_abs = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", st.session_state.base_data_path))
-        try:
-            if not os.path.exists(full_base_data_path_abs):
-                st.session_state.locations = []
-                st.error(f"錯誤：配置檔中指定的資料路徑 **'{full_base_data_path_abs}'** 不存在。請檢查配置檔 **'config.json'** 中的 **'base_data_path'** 設定。")
-                return # 提前返回，避免後續操作出錯
-
-            st.session_state.locations = sorted([item for item in os.listdir(full_base_data_path_abs) if os.path.isdir(os.path.join(full_base_data_path_abs, item)) and not item.startswith('.')])
-        except Exception as e:
-            st.session_state.locations = []
-            st.error(f"載入測站列表時發生錯誤: {e}")
+        st.session_state.locations = [device['StationID'] for device in st.session_state.devices if 'StationID' in device]
+    if 'risk_thresholds' not in st.session_state:
+        st.session_state.risk_thresholds = RISK_THRESHOLDS
 
     if 'available_years' not in st.session_state:
         if st.session_state.locations and st.session_state.base_data_path:
