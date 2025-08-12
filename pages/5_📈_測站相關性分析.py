@@ -580,8 +580,9 @@ def run_yearly_trend_analysis(locations, available_years, base_data_path):
     with st.container(border=True):
         st.subheader("⚙️ 分析設定")
         col1, col2 = st.columns(2)
-        s1 = col1.selectbox('測站 A:', locations, key='s1_trend')
-        s2 = col1.selectbox('測站 B:', locations, key='s2_trend', index=min(1, len(locations)-1))
+        s1 = col1.selectbox('測站 A:', locations, key='s1_trend', format_func=get_station_name_from_id)
+        s2 = col1.selectbox('測站 B:', locations, key='s2_trend', index=min(1, len(locations)-1), format_func=get_station_name_from_id)
+        s1_name, s2_name = get_station_name_from_id(s1), get_station_name_from_id(s2)
         
         param_map_trend = {
             "示性波高": "Wave_Height_Significant", "平均波週期": "Wave_Mean_Period", "波浪尖峰週期": "Wave_Peak_Period",
@@ -597,14 +598,14 @@ def run_yearly_trend_analysis(locations, available_years, base_data_path):
             st.select_slider('選擇年份範圍:', ["請先選擇不同測站"], disabled=True, key='y_slider_disabled_same')
             can_analyze = False
         else:
-            with st.spinner(f"正在查詢 {s1} 與 {s2} 的共同可用年份..."):
+            with st.spinner(f"正在查詢 {s1_name} 與 {s2_name} 的共同可用年份..."):
                 common_years = get_common_available_years(base_data_path, s1, s2, available_years)
 
             sorted_int_years = sorted([int(y) for y in common_years])
 
             if not sorted_int_years:
                 st.select_slider('選擇年份範圍:', ["無共同年份資料"], disabled=True, key='y_slider_disabled_no_data')
-                st.warning(f"⚠️ **{s1}** 與 **{s2}** 沒有共同的資料年份，請重新選擇測站。")
+                st.warning(f"⚠️ **{s1_name}** 與 **{s2_name}** 沒有共同的資料年份，請重新選擇測站。")
                 can_analyze = False
             else:
                 # <<< 修改重點 4: 優化年份滑桿的預設值選取邏輯 >>>
@@ -623,7 +624,7 @@ def run_yearly_trend_analysis(locations, available_years, base_data_path):
                 chart_type = st.selectbox('圖表類型:', ['長條圖', '折線圖', '面積圖', '散佈圖 (含趨勢線)'], key='chart_type')
                 
                 analysis_params = {
-                    "s1": s1, "s2": s2, "param_col": param_col, "param_disp": param_disp,
+                    "s1": s1_name, "s2": s2_name, "param_col": param_col, "param_disp": param_disp,
                     "start_y": start_y, "end_y": end_y, "chart_type": chart_type
                 }
                 can_analyze = True
