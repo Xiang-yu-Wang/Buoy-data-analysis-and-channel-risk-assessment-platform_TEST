@@ -11,7 +11,6 @@ from scipy.stats import pearsonr
 import os
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import plotly.express as px
 
 # 從 helpers 模組導入所有必要的通用函數和全局變數
 # 假設 helpers.py 中有這些函數
@@ -20,10 +19,8 @@ from utils.helpers import (
     initialize_session_state,
     load_app_config_and_font, 
     load_data_for_prediction_page, 
-    analyze_data_quality, 
     create_sequences, 
     PARAMETER_INFO, 
-    DATA_SUBFOLDERS_PRIORITY, 
     BASE_DATA_PATH_FROM_CONFIG,
     CHINESE_FONT_NAME,
     load_year_data,
