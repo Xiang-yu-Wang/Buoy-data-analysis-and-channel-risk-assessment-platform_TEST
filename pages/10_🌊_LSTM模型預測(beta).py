@@ -5,12 +5,13 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from plotly.subplots import make_subplots 
 import os
-from glob import glob
+import io
 import json
 import plotly.express as px
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 from scipy.stats import pearsonr 
+import zipfile
 
 # --- 新增 ---
 import joblib
@@ -723,3 +724,12 @@ if st.sidebar.button("🌊 執行 LSTM 預測"):
                 use_container_width=True,
                 help="下載包含所有執行參數與結果的文本報告"
             )
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"{selected_station_name}_{selected_param_col}_LSTM_forecast_data.csv", csv_data)
+            zf.writestr(f"{selected_station_name}_{selected_param_col}_LSTM_report.txt", report_content.encode('utf-8'))
+            zf.writestr(f"{selected_station_name}_{selected_param_col}_LSTM_forecast_chart.html", fig_bytes)
+        st.download_button("🚀 一鍵打包下載 (ZIP)", zip_buffer.getvalue(), f"{selected_station_name}_{selected_param_col}_LSTM_forecast_package.zip",
+                           "application/zip", use_container_width=True,
+                           help="下載包含預測數據、圖表和報告的壓縮包")
