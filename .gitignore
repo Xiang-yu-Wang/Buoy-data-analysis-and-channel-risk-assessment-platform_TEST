@@ -1,4 +1,4 @@
-.venv/
+.venv
 utils/__pycache__
-dataset/
-trained_models/
+dataset
+trained_models
