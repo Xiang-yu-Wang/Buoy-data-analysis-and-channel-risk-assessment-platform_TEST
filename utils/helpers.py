@@ -1,4 +1,6 @@
+from enum import Enum
 from glob import glob
+from typing import List, Optional, Tuple, TypedDict
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -10,6 +12,7 @@ import chardet
 # Optional: For Matplotlib related functions, if you still use them in other parts of your app
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
+from tensorflow import norm
 
 # --- 全局配置變數 (在模組載入時初始化) ---
 PARAMETER_INFO = {}
@@ -541,3 +544,165 @@ def initialize_session_state():
     # 如果 main app.py 頁面不直接繪製 Matplotlib 圖，這行程式碼也可以移動到需要繪圖的子頁面中。
     if st.session_state.chinese_font_path and st.session_state.chinese_font_name:
         set_chinese_font_for_matplotlib(st.session_state.chinese_font_path, st.session_state.chinese_font_name)
+
+def hsl_to_rgb(h: float, s: float, l: float) -> Tuple[int, int, int]:
+    """
+    Convert HSL to RGB.
+    h: Hue [0, 1]
+    s: Saturation [0, 1]
+    l: Lightness [0, 1]
+    Returns: Tuple of RGB values in [0, 255]
+    """
+    h = h % 1.0  # wrap around if needed
+    c = (1 - abs(2 * l - 1)) * s
+    h_prime = h * 6
+    x = c * (1 - abs(h_prime % 2 - 1))
+
+    if 0 <= h_prime < 1:
+        r1, g1, b1 = c, x, 0
+    elif 1 <= h_prime < 2:
+        r1, g1, b1 = x, c, 0
+    elif 2 <= h_prime < 3:
+        r1, g1, b1 = 0, c, x
+    elif 3 <= h_prime < 4:
+        r1, g1, b1 = 0, x, c
+    elif 4 <= h_prime < 5:
+        r1, g1, b1 = x, 0, c
+    elif 5 <= h_prime < 6:
+        r1, g1, b1 = c, 0, x
+    else:
+        r1, g1, b1 = 0, 0, 0  # fallback
+
+    m = l - c / 2
+    r, g, b = r1 + m, g1 + m, b1 + m
+
+    return (round(r * 255), round(g * 255), round(b * 255))
+
+# ================================================
+# New utils
+# ================================================
+
+class Config(TypedDict):
+    dataset_path: str
+
+@st.cache_resource
+def get_config() -> Config:
+    # Open current cwd config.json file
+    config_file_path = os.path.join(os.getcwd(), 'config.json')
+    if not os.path.exists(config_file_path):
+        raise FileNotFoundError(f"配置檔 '{config_file_path}' 不存在。請確保它與應用程式在同一個資料夾。")
+
+    with open(config_file_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+class DatasetCategory(Enum):
+    BUOY = "buoy"
+    RADAR = "radar"
+
+@st.cache_data
+def get_data_path(category: DatasetCategory, station_id: str) -> str:
+    """根據類別和測站名稱返回資料集的完整路徑。"""
+    config = get_config()
+    
+    path = os.path.join(
+        config["dataset_path"],
+        category.value,  # 使用 Enum 的值作為資料夾名稱
+        station_id  # 測站名稱
+    )
+    norm_path = os.path.normpath(path)
+    
+    if not os.path.exists(norm_path):
+        raise FileNotFoundError(f"資料集路徑 '{norm_path}' 不存在。請檢查配置檔或測站名稱是否正確。")
+
+    return norm_path
+
+class StationMetadata(TypedDict):
+    GeoProductID: int
+    Id: str
+    CenterLatitude: float
+    CenterLongitude: float
+    WestBoundLongitude: float
+    EastBoundLongitude: float
+    SouthBoundLatitude: float
+    NorthBoundLatitude: float
+    Title: str
+    TitleEng: Optional[str]
+    EarliestDate: str
+    LatestDate: str
+    Class1: Optional[str]
+    Class2: Optional[str]
+    Class3: Optional[str]
+    Class4: Optional[str]
+    AccessType: str
+    ClassCode: str
+    ClassID: int
+    MetaDataID: int
+    DataStatus: str
+    StationID: str
+    StationName: Optional[str]
+    StationNameLocal: str
+    StationChargeID: str
+    StationTypeID: str
+
+@st.cache_data
+def list_station_metadata(category: DatasetCategory) -> List[StationMetadata]:
+    """從配置檔或資料庫中載入測站元數據。"""
+    config = get_config()
+    metadata_file_path = os.path.join(config["dataset_path"], category.value, "stations.json")
+    
+    if not os.path.exists(metadata_file_path):
+        raise FileNotFoundError(f"測站元數據檔案 '{metadata_file_path}' 不存在。請檢查配置檔或資料夾結構。")
+    
+    with open(metadata_file_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+@st.cache_data
+def get_station_metadata(category: DatasetCategory, station_id: str) -> Optional[StationMetadata]:
+    """根據測站 ID 獲取單個測站的元數據。"""
+    metadatas = list_station_metadata(category)
+    for metadata in metadatas:
+        if metadata['StationID'] == station_id:
+            return metadata
+    return None
+
+class StationDate(TypedDict):
+    date: str
+    path: str
+
+@st.cache_data
+def list_station_dates(category: DatasetCategory, path: str) -> List[StationDate]:
+    """列出指定測站的所有可用日期。"""
+    # List all files in the directory
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"指定的資料夾 '{path}' 不存在。請檢查路徑是否正確。")
+
+    files = os.listdir(path)
+    dates: List[StationDate] = []
+
+    if category == DatasetCategory.BUOY:
+        # 假設 BUOY 資料夾中的檔案格式為 YYYYMM.csv
+        date_pattern = re.compile(r'(\d{4})(\d{2})\.csv$')
+        for file in files:
+            match = date_pattern.match(file)
+            if not match: continue
+            year, month = match.groups()
+            date_str = f"{year}-{month}"
+            dates.append({
+                "date": date_str,
+                "path": os.path.join(path, file)
+            })
+
+    elif category == DatasetCategory.RADAR:
+        # 假設 RADAR 資料夾中的檔案格式為 YYYYMMDD/
+        date_pattern = re.compile(r'(\d{4})(\d{2})(\d{2})\/?$')
+        for file in files:
+            match = date_pattern.match(file)
+            if not match: continue
+            year, month, day = match.groups()
+            date_str = f"{year}-{month}-{day}"
+            dates.append({
+                "date": date_str,
+                "path": os.path.join(path, file)
+            })
+
+    return sorted(dates, key=lambda x: x['date'], reverse=True)

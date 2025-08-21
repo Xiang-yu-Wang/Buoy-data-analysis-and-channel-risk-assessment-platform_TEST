@@ -1,4 +1,7 @@
 #最終(新增測站全選)
+from math import cos, pi
+from types import resolve_bases
+from PIL import Image
 from altair.utils.core import P
 from jinja2.utils import F
 import streamlit as st
@@ -8,8 +11,9 @@ import plotly.graph_objects as go
 import numpy as np
 import os
 import folium
-from streamlit_folium import st_folium
-from utils.helpers import initialize_session_state, load_year_data, PARAMETER_INFO, convert_df_to_csv
+from streamlit_folium import folium_static, st_folium
+from utils.helpers import DatasetCategory, get_station_metadata, hsl_to_rgb, initialize_session_state, list_station_metadata, load_year_data, PARAMETER_INFO, convert_df_to_csv
+from utils.radar import Radar
 
 # --- 1. 頁面設定與標題 ---
 st.set_page_config(layout="wide")
@@ -36,7 +40,7 @@ analysis_mode = st.radio(
 # --- 模式一：靜態地圖 ---
 if analysis_mode == "靜態地圖":
     st.subheader("🌐 所有測站靜態地圖")
-    
+
     m = folium.Map(location=[23.6, 120.6], zoom_start=8)
 
     for device in devices:
@@ -46,9 +50,88 @@ if analysis_mode == "靜態地圖":
             icon=folium.Icon(color='blue', icon='info-sign', prefix='glyphicon')
         ).add_to(m)
 
+    ## --- RADAR ----
+    for metadata in list_station_metadata(DatasetCategory.RADAR):
+        radar = Radar(metadata, 2.5)
+        dates = radar.list_date()
+        if not dates: continue
+
+        st.sidebar.markdown(f"### {radar.name} 雷達")
+        col1, col2 = st.sidebar.columns([1, 100], gap="medium")
+        with col1:
+            display = st.checkbox( "",
+                value=True,
+                key=f'pages_1_radar_layer_toggle_{radar.id}'
+            )
+        with col2:
+            date: str = st.selectbox(
+                f"",
+                options=[d['date'] for d in dates],
+                index=len(dates) - 1 if dates else 0,
+                key=f'pages_1_radar_date_select_{radar.id}',
+                label_visibility="collapsed",
+                disabled=not display,
+            ) or dates[-1]['date']
+        if not display: continue
+
+        radar_data = radar.load_data(date)
+        # 將雷達數據轉換為圖片
+
+        # Each point mean radar.resolution meters wave level
+        resolution = radar.resolution / 1000  # Convert to kilometers
+        [width, height] = radar_data.shape
+        [width, height] = [
+            width * resolution / 111,
+            height * resolution / (cos(np.radians(radar.latitude)) * 111)
+        ]
+        bounds = [
+            [radar.latitude + height / 2, radar.longitude + width / 2],
+            [radar.latitude - height / 2, radar.longitude - width / 2]
+        ]
+
+        # Linear normalization
+        max = np.nanmax(radar_data)
+        min = np.nanmin(radar_data)
+        radar_data = (radar_data - min / (max - min)) * 255
+
+        st.markdown(f"#### {radar.name} 雷達數據 ({date})")
+        st.html(f"""
+        <div>
+            <div style="
+                display: flex;
+                justify-content: space-between;
+            ">
+                    <span>{max}</span>
+                    <span>{(max + min) / 2}</span>
+                    <span>{min}</span>
+            </div>
+            <div style="
+                height: 20px;
+                background: linear-gradient(90deg, 
+                    hsl(360deg, 50%, 50%),
+                    hsl(225deg, 50%, 50%),
+                    hsl(90deg, 50%, 50%)
+                );
+            ">
+            </div>
+        </div>
+        """)
+
+        # Tanh normalization
+        # scale = 1.8
+        # radar_data = (np.tanh(radar_data / scale) + 1) / 2 * 255
+
+        folium.raster_layers.ImageOverlay(
+            image=radar_data.astype(np.uint8).transpose(),
+            name=f"{radar.name} 雷達數據 ({date})",
+            colormap=lambda x: hsl_to_rgb(1 - float(x) / 255 * 3 / 4, 0.5, 0.5),
+            bounds=bounds,
+            opacity=0.6,
+        ).add_to(m)
+
 
     # Display map and capture interaction
-    map_data = st_folium(m, width=700, height=500)
+    folium_static(m, width=700, height=500)
 
 
 # --- 模式二：動態向量場 ---

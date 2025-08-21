@@ -1,4 +1,5 @@
 {
+  "dataset_path": "dataset/",
   "base_data_path": "dataset/buoy/",
   "CHINESE_FONT_PATH": "fonts/NotoSansTC-VariableFont_wght.ttf",
   "risk_thresholds": {
