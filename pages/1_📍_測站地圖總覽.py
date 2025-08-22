@@ -90,8 +90,8 @@ if analysis_mode == "靜態地圖":
         ]
 
         # Linear normalization
-        max = np.nanmax(radar_data)
-        min = np.nanmin(radar_data)
+        max = np.ceil(np.nanmax(radar_data))
+        min = np.floor(np.nanmin(radar_data))
         radar_data = (radar_data - min) / (max - min) * 255
 
         st.markdown(f"#### {radar.name} 雷達數據 ({date})")
