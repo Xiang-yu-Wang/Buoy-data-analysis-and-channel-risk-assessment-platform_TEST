@@ -29,6 +29,8 @@ base_data_path = st.session_state['base_data_path']
 available_years = st.session_state['available_years']
 
 with st.sidebar.expander("🗺️ 測站座標診斷"):
+    # Order by center latitude
+    devices = sorted(devices, key=lambda d: d.get('CenterLatitude', 0), reverse=True)
     for device in devices:
         st.json(device, expanded=False)
 
@@ -51,87 +53,87 @@ if analysis_mode == "靜態地圖":
         ).add_to(m)
 
     ## --- RADAR ----
-    for metadata in list_station_metadata(DatasetCategory.RADAR):
+    metadata = st.sidebar.selectbox(
+        "選擇雷達數據集:",
+        list_station_metadata(DatasetCategory.RADAR),
+        key='radar_dataset_select',
+        index=None,
+        format_func=lambda x: x["StationNameLocal"],
+        placeholder="不顯示"
+    )
+    if metadata:
         radar = Radar(metadata, 2.5)
         dates = radar.list_date()
-        if not dates: continue
+        if not dates:
+            st.warning(f"無有效的雷達數據可供顯示。")
+        else:
 
-        st.sidebar.markdown(f"### {radar.name} 雷達")
-        col1, col2 = st.sidebar.columns([1, 100], gap="medium")
-        with col1:
-            display = st.checkbox( "",
-                value=True,
-                key=f'pages_1_radar_layer_toggle_{radar.id}'
-            )
-        with col2:
-            date: str = st.selectbox(
+            date: str = st.sidebar.selectbox(
                 f"",
                 options=[d['date'] for d in dates],
                 index=len(dates) - 1 if dates else 0,
                 key=f'pages_1_radar_date_select_{radar.id}',
                 label_visibility="collapsed",
-                disabled=not display,
             ) or dates[-1]['date']
-        if not display: continue
 
-        radar_data = radar.load_data(date)
-        # 將雷達數據轉換為圖片
+            radar_data = radar.load_data(date)
+            # 將雷達數據轉換為圖片
 
-        # Each point mean radar.resolution meters wave level
-        resolution = radar.resolution / 1000  # Convert to kilometers
-        [width, height] = radar_data.shape
-        [width, height] = [
-            width * resolution / 111,
-            height * resolution / (cos(np.radians(radar.latitude)) * 111)
-        ]
-        bounds = [
-            [radar.latitude + height / 2, radar.longitude + width / 2],
-            [radar.latitude - height / 2, radar.longitude - width / 2]
-        ]
+            # Each point mean radar.resolution meters wave level
+            resolution = radar.resolution / 1000  # Convert to kilometers
+            [width, height] = radar_data.shape
+            [width, height] = [
+                width * resolution / 111,
+                height * resolution / (cos(np.radians(radar.latitude)) * 111)
+            ]
+            bounds = [
+                [radar.latitude + height / 2, radar.longitude + width / 2],
+                [radar.latitude - height / 2, radar.longitude - width / 2]
+            ]
 
-        # Linear normalization
-        max = np.ceil(np.nanmax(radar_data))
-        min = np.floor(np.nanmin(radar_data))
-        radar_data = (radar_data - min) / (max - min) * 255
+            # Linear normalization
+            max = np.ceil(np.nanmax(radar_data))
+            min = np.floor(np.nanmin(radar_data))
+            radar_data = (radar_data - min) / (max - min) * 255
 
-        st.markdown(f"#### {radar.name} 雷達數據 ({date})")
-        st.html(f"""
-        <div>
-            <div style="
-                display: flex;
-                justify-content: space-between;
-            ">
-                    <span>{max}</span>
-                    <span>{(max + min) / 2}</span>
-                    <span>{min}</span>
+            st.html(f"""
+            <div>
+                <div style="
+                    display: flex;
+                    justify-content: space-between;
+                ">
+                        <span>{max}</span>
+                        <span>{(max + min) / 2}</span>
+                        <span>{min}</span>
+                </div>
+                <div style="
+                    height: 20px;
+                    background: linear-gradient(90deg, 
+                        hsl(360deg, 50%, 50%),
+                        hsl(225deg, 50%, 50%),
+                        hsl(90deg, 50%, 50%)
+                    );
+                ">
+                </div>
+                <h4 style="text-align: center; margin: 0;">雷達數據顏色條</h4>
             </div>
-            <div style="
-                height: 20px;
-                background: linear-gradient(90deg, 
-                    hsl(360deg, 50%, 50%),
-                    hsl(225deg, 50%, 50%),
-                    hsl(90deg, 50%, 50%)
-                );
-            ">
-            </div>
-        </div>
-        """)
+            """)
 
-        # Tanh normalization
-        # scale = 1.8
-        # radar_data = (np.tanh(radar_data / scale) + 1) / 2 * 255
+            # Tanh normalization
+            # scale = 1.8
+            # radar_data = (np.tanh(radar_data / scale) + 1) / 2 * 255
 
-        folium.raster_layers.ImageOverlay(
-            image=radar_data.astype(np.uint8).transpose(),
-            name=f"{radar.name} 雷達數據 ({date})",
-            colormap=lambda x: hsl_to_rgb(1 - float(x) / 255 * 3 / 4, 0.5, 0.5),
-            bounds=bounds,
-            opacity=0.6,
-        ).add_to(m)
+            folium.raster_layers.ImageOverlay(
+                image=radar_data.astype(np.uint8).transpose(),
+                name=f"{radar.name} 雷達數據 ({date})",
+                colormap=lambda x: hsl_to_rgb(1 - float(x) / 255 * 3 / 4, 0.5, 0.5),
+                bounds=bounds,
+                opacity=0.6,
+            ).add_to(m)
 
 
     # Display map and capture interaction
-    folium_static(m, width=700, height=500)
+    st_folium(m, width=700, height=500, returned_objects=[])
 
 
 # --- 模式二：動態向量場 ---
@@ -254,15 +256,15 @@ elif analysis_mode == "動態向量場":
                 initial_lines_lon.extend([row['lon'], row['end_lon'], None])
             
             fig = go.Figure(data=[
-                go.Scattermapbox(lat=initial_lines_lat, lon=initial_lines_lon, mode='lines', line=dict(width=2.5, color='rgba(0, 115, 230, 0.8)'), hoverinfo='none', showlegend=False),
-                go.Scattermapbox(
+                go.Scattermap(lat=initial_lines_lat, lon=initial_lines_lon, mode='lines', line=dict(width=2.5, color='rgba(0, 115, 230, 0.8)'), hoverinfo='none', showlegend=False),
+                go.Scattermap(
                     lat=initial_df['end_lat'], lon=initial_df['end_lon'], mode='markers',
                     marker=dict(symbol='circle', size=12, color=initial_df[magnitude_col], colorscale='Viridis', cmin=min_mag_plot, cmax=max_mag_plot, showscale=True,
                                 colorbar=dict(title=f"<b>{params['vector_title']}</b><br>({params['magnitude_unit']})", x=1.01, y=0.5, len=0.7, thickness=15, yanchor='middle', xanchor='left')),
                     hovertemplate=f"<b>{params['vector_title']}:</b> %{{marker.color:.2f}}<extra></extra>",
                     showlegend=False
                 ),
-                go.Scattermapbox(
+                go.Scattermap(
                     lat=initial_df['lat'], lon=initial_df['lon'], mode='markers', marker=dict(size=8, color='red', opacity=0.7),
                     text=initial_df['station_name'], customdata=np.stack((initial_df[magnitude_col], initial_df[direction_col]), axis=-1),
                     hovertemplate='<b>%{text}</b><br>' + f"<b>{params['vector_title']}:</b> %{{customdata[0]:.2f}} {params['magnitude_unit']}<br>" + '<b>方向:</b> %{customdata[1]:.1f}°<extra></extra>',
@@ -279,23 +281,21 @@ elif analysis_mode == "動態向量場":
                     lines_lon.extend([row['lon'], row['end_lon'], None])
                 
                 frames.append(go.Frame(name=time_str, data=[
-                    go.Scattermapbox(lat=lines_lat, lon=lines_lon),
-                    go.Scattermapbox(lat=frame_df['end_lat'], lon=frame_df['end_lon'], marker={'color': frame_df[magnitude_col]}),
-                    go.Scattermapbox(lat=frame_df['lat'], lon=frame_df['lon'], text=frame_df['station_name'], customdata=np.stack((frame_df[magnitude_col], frame_df[direction_col]), axis=-1))
+                    go.Scattermap(lat=lines_lat, lon=lines_lon),
+                    go.Scattermap(lat=frame_df['end_lat'], lon=frame_df['end_lon'], marker={'color': frame_df[magnitude_col]}),
+                    go.Scattermap(lat=frame_df['lat'], lon=frame_df['lon'], text=frame_df['station_name'], customdata=np.stack((frame_df[magnitude_col], frame_df[direction_col]), axis=-1))
                 ], traces=[0, 1, 2]))
 
             fig.frames = frames
             
             # --- 修改重點：調整 mapbox 中心點、縮放等級和邊距 ---
             fig.update_layout(
-                mapbox_style="open-street-map",
-                # 固定中心點在台灣，並設定合適的縮放等級
-                mapbox_center={"lat": 23.9, "lon": 121.0},
-                mapbox_zoom=6.5,
+                map={
+                    'center': {'lat': 23.9, 'lon': 121.0},
+                    'zoom': 6.5,
+                    'style': "open-street-map",
+                },
                 title_text=f"動態向量場: {params['vector_title']} ({params['selected_year']}年, {params['selected_freq']})", title_x=0.5,
-                # 稍微減少底部邊距，讓地圖看起來更大
-                margin={"r":0,"t":50,"l":0,"b":70},
-                
                 updatemenus=[dict(
                     type="buttons",
                     showactive=True,
@@ -321,6 +321,19 @@ elif analysis_mode == "動態向量場":
                 )]
             )
             st.plotly_chart(fig, use_container_width=True)
+            st.html("""
+            <style>
+                .maplibregl-control-container {
+                    right: 2px;
+                    position: absolute;
+                    text-align: right;
+                    font-size: 12px;
+                }
+                .maplibregl-ctrl-attrib-button {
+                    display: none;
+                }
+            </style>
+            """)
 
         with tab2:
             st.subheader("📊 數據品質與統計概覽")
