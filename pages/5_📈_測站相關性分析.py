@@ -19,7 +19,7 @@ def load_year_data(base_path, station, year):
         return None
     
     np.random.seed(hash(f"{station}{year}") % (2**32 - 1)) # 確保每次生成的假資料都一樣
-    date_rng = pd.date_range(start=f'{year}-01-01', end=f'{year}-12-31', freq='H')
+    date_rng = pd.date_range(start=f'{year}-01-01', end=f'{year}-12-31', freq='h')
     df = pd.DataFrame(date_rng, columns=['time'])
     df['Wave_Height_Significant'] = np.random.normal(1.5, 0.5, size=len(date_rng))
     df['Wave_Mean_Period'] = np.random.normal(8, 1, size=len(date_rng))

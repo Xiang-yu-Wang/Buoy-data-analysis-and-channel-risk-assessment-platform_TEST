@@ -6,7 +6,6 @@ import io
 from zipfile import ZipFile
 from scipy.stats import linregress
 import numpy as np
-from datetime import datetime
 
 st.title("🔀 參數交叉比較")
 initialize_session_state()
@@ -207,11 +206,16 @@ else:
             st.caption("所有數值參數的詳細統計表")
             
             df_desc_view = df_desc[['count', 'mean', 'std', 'min', 'max']]
+            # 將索引轉換為參數顯示名稱
+            df_desc_view.index = [PARAMETER_INFO.get(idx, {}).get('display_zh', idx) for idx in df_desc_view.index]
+            df_desc_view.index.name = '參數'
+
             st.dataframe(
                 df_desc_view.style
                 .background_gradient(cmap='viridis', subset=['mean', 'max'])
                 .format("{:.2f}")
             )
+
         
         with col2:
             st.markdown("##### ② 數據品質報告")

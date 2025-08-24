@@ -321,7 +321,8 @@ def batch_process_all_data(base_data_path_from_config, locations, years_to_analy
                 
                 # --- 第 2 個修改：使用 '月份' 進行分組 ---
                 monthly_results = df_year.groupby('月份').apply(
-                    lambda df_month: analyze_navigability(df_month, wave_thresh, wind_thresh)
+                    lambda df_month: analyze_navigability(df_month, wave_thresh, wind_thresh),
+                    include_groups=False
                 ).reset_index(name='可航行時間比例(%)')
                 
                 monthly_results['地點'] = get_station_name_from_id(location)
